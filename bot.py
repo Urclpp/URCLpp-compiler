@@ -77,5 +77,5 @@ async def comp(ctx, *, msg=''):
         await ctx.send("if you want me to compile, give me code! >:(")
 
 
-token = 'ODUzNzYzNjA1NTEzMzcxNjQ4.YMaHUQ.nNLCNqdUudcotPFZBL0JxEynzfo'
+token = 'token_name'
 client.run(token)
