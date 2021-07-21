@@ -4,12 +4,18 @@ CGREEN = '\033[32m'
 CEND = '\033[0m'
 allowed_chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_'
 
+macros = {
+        'BITS': '8',
+        'MIN': '-128',
+        'MAX': '127',
+        '': '',
+    }
+
 
 def compiler(self):
     # setup variables and the raw code
     errors = "```diff\n"
     labels = set()
-    macros = set()
     instructions = []
     lib_code = 'JMP .endFile\n'
     self = remove_comments(self)  # removes comments inline or multi line
@@ -43,35 +49,46 @@ def compiler(self):
         else:  # work on the instructions
             opcode = a[0]
             op_num = opcodes(opcode)  # returns the n of operands the instruction needs, or YEET if error
-            '''if '[' in a[1]:  # there is some multiword action going on
-                i = 0
-                operand = []
-                while i < len(a[1]):
-                    if a[1][i] == '[':  # group operands based on the brackets
-                        op = ''
-                        while a[1][i] != ']':
-                            op += a[1][i]
-                            if i < len(a[1]):
-                                i += 1
-                            else:
-                                break
-                        operand.append(op + ']')
-                    i += 1
-            else:'''  # regular operands get separated here
-            operand = a[1].split(' ')
-            i = 0
+            new_op_num = op_num
+            if op_num == 'YEET':  # if its an error then it must be a new instruction or an error
+                new_op_num = new_opcodes(opcode)
+            if '(' in a[1]:
+                if opcode != 'LIB':
+                    print(CRED + "Syntax Error: Invalid operand type at line " + str(line) + CEND)
+                    errors += f"-Syntax Error: Invalid operand type at line {str(line)}\n"
+                    return f"{errors[:-1]}```"
+                else:
+                    op = make_parameter(a[1])
+                    operand = make_multi_word(op[len(op)-1])
+
+            elif '[' in a[1]:  # deals with operands
+                operand = make_multi_word(a[1])
+
+            else:
+                operand = a[1].split(' ')
+
             op = []
             for b in operand:  # checking what operand type it is and converting some of them ex: imm to decimal
-                op_type = operand_type(b)
+                op_type = operand_type(b[0])
                 if op_type == 'YEET':  # yeet means error
-                    if b == 'SP':  # deal with sp plz
+                    if b == 'SP':  # deal with sp
                         pass
+                    elif new_op_num != 'YEET':
+                        if opcode == '@DEF':  # don't give errors if its define macros
+                            pass
                     else:
                         print(CRED + "Syntax Error: Unknown operand type at line " + str(line) + CEND)
                         errors += f"-Syntax Error: Unknown operand type at line {str(line)}\n"
                 elif op_type == 'imm':
                     b = str(int(b))
+                elif op_type == 'macros':
+                    b = macro(b[1:], '', '')
+                    if b == 'YEET':
+                        print(CRED + "Syntax Error: Unknown macros used at line " + str(line) + CEND)
+                        errors += f"-Syntax Error: Unknown macros used at line {str(line)}\n"
+                        return f"{errors[:-1]}```"
                 op.append(b)
+
             operand = op
 
             if opcode == 'DW':
@@ -84,6 +101,120 @@ def compiler(self):
                 else:
                     print(CRED + "Syntax Error: Wrong number of operands at line " + str(line) + CEND)
                     errors += f"-Syntax Error: Wrong number of operands at line {str(line)}\n"
+
+            elif opcode == '@DEF':
+                if new_op_num == 2:
+                    macro(operand[0], operand[1], 'def')
+                else:
+                    print(CRED + "Syntax Error: Wrong number of operands at line " + str(line) + CEND)
+                    errors += f"-Syntax Error: Wrong number of operands at line {str(line)}\n"
+
+            elif opcode == 'LIB':
+                if operand[0] == 'advmath':
+                    from libraries import advmath
+                    test = advmath.arg_num_func(operand[1], len(operand[2]))
+                    if test:
+                        if len(operand[2]) == 1:
+                            lib_code += advmath.function(operand[1], operand[2][0])
+
+                        elif len(operand[2]) == 2:
+                            lib_code += advmath.function(operand[1], operand[2][0], operand[2][1])
+
+                        elif len(operand[2]) == 3:
+                            lib_code += advmath.function(operand[1], operand[2][0], operand[2][1], operand[2][2])
+
+                        elif len(operand[2]) == 4:
+                            t = advmath.function(operand[1], operand[2][0], operand[2][1], operand[2][2], operand[2][3])
+                            lib_code += t
+
+                    elif not test:
+                        print(CRED + "Syntax Error: Wrong number of arguments passed at line " + str(line) + CEND)
+                        errors += f"-Syntax Error: Wrong number of arguments passed at line {str(line)}\n"
+
+                    elif test == 'Error':
+                        print(CRED + "Syntax Error: Unknown function at line " + str(line) + CEND)
+                        errors += f"-Syntax Error: Unknown function at line {str(line)}\n"
+
+                elif operand[0] == 'float':
+                    from libraries import float
+                    test = float.arg_num_func(operand[1], len(operand[2]))
+                    if test:
+                        if len(operand[2]) == 1:
+                            lib_code += float.function(operand[1], operand[2][0])
+
+                        elif len(operand[2]) == 2:
+                            lib_code += float.function(operand[1], operand[2][0], operand[2][1])
+
+                        elif len(operand[2]) == 3:
+                            lib_code += float.function(operand[1], operand[2][0], operand[2][1], operand[2][2])
+
+                        elif len(operand[2]) == 4:
+                            t = float.function(operand[1], operand[2][0], operand[2][1], operand[2][2], operand[2][3])
+                            lib_code += t
+
+                    elif not test:
+                        print(CRED + "Syntax Error: Wrong number of arguments passed at line " + str(line) + CEND)
+                        errors += f"-Syntax Error: Wrong number of arguments passed at line {str(line)}\n"
+
+                    elif test == 'Error':
+                        print(CRED + "Syntax Error: Unknown function at line " + str(line) + CEND)
+                        errors += f"-Syntax Error: Unknown function at line {str(line)}\n"
+
+                elif operand[0] == 'string':
+                    from libraries import string
+                    test = string.arg_num_func(operand[1], len(operand[2]))
+                    if test:
+                        if len(operand[2]) == 1:
+                            lib_code += string.function(operand[1], operand[2][0])
+
+                        elif len(operand[2]) == 2:
+                            lib_code += string.function(operand[1], operand[2][0], operand[2][1])
+
+                        elif len(operand[2]) == 3:
+                            lib_code += string.function(operand[1], operand[2][0], operand[2][1], operand[2][2])
+
+                        elif len(operand[2]) == 4:
+                            t = string.function(operand[1], operand[2][0], operand[2][1], operand[2][2], operand[2][3])
+                            lib_code += t
+
+                    elif not test:
+                        print(CRED + "Syntax Error: Wrong number of arguments passed at line " + str(line) + CEND)
+                        errors += f"-Syntax Error: Wrong number of arguments passed at line {str(line)}\n"
+
+                    elif test == 'Error':
+                        print(CRED + "Syntax Error: Unknown function at line " + str(line) + CEND)
+                        errors += f"-Syntax Error: Unknown function at line {str(line)}\n"
+
+                elif operand[0] == 'array':
+                    from libraries import array
+                    test = array.arg_num_func(operand[1], len(operand[2]))
+                    if test:
+                        if len(operand[2]) == 1:
+                            lib_code += array.function(operand[1], operand[2][0])
+
+                        elif len(operand[2]) == 2:
+                            lib_code += array.function(operand[1], operand[2][0], operand[2][1])
+
+                        elif len(operand[2]) == 3:
+                            lib_code += array.function(operand[1], operand[2][0], operand[2][1], operand[2][2])
+
+                        elif len(operand[2]) == 4:
+                            t = array.function(operand[1], operand[2][0], operand[2][1], operand[2][2], operand[2][3])
+                            lib_code += t
+
+                    elif not test:
+                        print(CRED + "Syntax Error: Wrong number of arguments passed at line " + str(line) + CEND)
+                        errors += f"-Syntax Error: Wrong number of arguments passed at line {str(line)}\n"
+
+                    elif test == 'Error':
+                        print(CRED + "Syntax Error: Unknown function at line " + str(line) + CEND)
+                        errors += f"-Syntax Error: Unknown function at line {str(line)}\n"
+
+                else:
+                    print(CRED + "Syntax Error: Unknown Library at line " + str(line) + CEND)
+                    errors += f"-Syntax Error: Unknown Library at line {str(line)}\n"
+                pass
+
             elif op_num == 'YEET':  # if the previous function returns YEET then its not an opcode
                 if opcode == 'BITS':  # deals with minstack header
                     if header_bits:
@@ -96,12 +227,15 @@ def compiler(self):
                         if operand[0] not in ('==', '>=', '<=', '>', '<'):
                             print(CRED + "Syntax Error: Invalid operand at line " + str(line) + CEND)
                             errors += f"-Syntax Error: Invalid operand at line {str(line)}\n"
-                        elif operand[1].isnumeric():
+                        elif operand[1].isnumeric() and int(operand[1]) >= 0:
                             instructions.append(opcode + ' ' + (' '.join(operand)))
                             header_bits = True
+                            macro('BITS', operand[1], 'def')
+                            macro('MIN', -2**(int(operand[1])), 'def')
+                            macro('MAX', 2**(int(operand[1]))-1, 'def')
                         else:
-                            print(CRED + "Syntax Error: Unknown operand at line " + str(line) + CEND)
-                            errors += f"-Syntax Error: Unknown operand at line {str(line)}\n"
+                            print(CRED + "Syntax Error: Invalid operand type at line " + str(line) + CEND)
+                            errors += f"-Syntax Error: Invalid operand type at line {str(line)}\n"
 
                 elif opcode == 'MINREG':  # deals with minreg header
                     if header_minreg:
@@ -111,12 +245,12 @@ def compiler(self):
                         print(CRED + "Syntax Error: Wrong number of operands at line " + str(line) + CEND)
                         errors += f"-Syntax Error: Wrong number of operands at line {str(line)}\n"
                     else:
-                        if operand[0].isnumeric():
+                        if operand[0].isnumeric() and int(operand[1]) >= 0:
                             instructions.append(opcode + ' ' + (' '.join(operand)))
                             header_minreg = True
                         else:
-                            print(CRED + "Syntax Error: Unknown operand at line " + str(line) + CEND)
-                            errors += f"-Syntax Error: Unknown operand at line {str(line)}\n"
+                            print(CRED + "Syntax Error: Invalid operand type at line " + str(line) + CEND)
+                            errors += f"-Syntax Error: Invalid operand type at line {str(line)}\n"
 
                 elif opcode == 'MINHEAP':  # deals with minheap header
                     if header_minheap:
@@ -126,12 +260,12 @@ def compiler(self):
                         print(CRED + "Syntax Error: Wrong number of operands at line " + str(line) + CEND)
                         errors += f"-Syntax Error: Wrong number of operands at line {str(line)}\n"
                     else:
-                        if operand[0].isnumeric():
+                        if operand[0].isnumeric() and int(operand[1]) >= 0:
                             instructions.append(opcode + ' ' + (' '.join(operand)))
                             header_minheap = True
                         else:
-                            print(CRED + "Syntax Error: Unknown operand at line " + str(line) + CEND)
-                            errors += f"-Syntax Error: Unknown operand at line {str(line)}\n"
+                            print(CRED + "Syntax Error: Invalid operand type at line " + str(line) + CEND)
+                            errors += f"-Syntax Error: Invalid operand type at line {str(line)}\n"
 
                 elif opcode == 'RUN':  # deals with run ram/rom header
                     if header_run:
@@ -156,12 +290,12 @@ def compiler(self):
                         print(CRED + "Syntax Error: Wrong number of operands at line " + str(line) + CEND)
                         errors += f"-Syntax Error: Wrong number of operands at line {str(line)}\n"
                     else:
-                        if operand[0] == 'RAM' or operand == 'ROM':
+                        if operand[0].isnumeric() and int(operand[1]) >= 0:
                             instructions.append(opcode + ' ' + (' '.join(operand)))
                             header_minstack = True
                         else:
-                            print(CRED + "Syntax Error: Unknown operand at line " + str(line) + CEND)
-                            errors += f"-Syntax Error: Unknown operand at line {str(line)}\n"
+                            print(CRED + "Syntax Error: Invalid operand type at line " + str(line) + CEND)
+                            errors += f"-Syntax Error: Invalid operand type at line {str(line)}\n"
 
                 elif opcode == 'IMPORT':  # deals with IMPORT header
                     header_import = True
@@ -313,14 +447,27 @@ def opcodes(self):  # checks if the opcode is correct and returns the number of 
         'SETC': 3,
         'SETNC': 3,
         'LLOD': 3,
-        'LSTR': 3,
-        # urcl++ exclusive below
-        'LIB': 2,
+        'LSTR': 3
     }
     try:
         output = operands[self]
     except KeyError:
         output = 'YEET'
+
+    return output
+
+
+def new_opcodes(self):
+    operands = {
+        # urcl++ exclusive below
+        'LIB': 3,
+        '@DEF': 2,
+    }
+    try:
+        output = operands[self]
+    except KeyError:
+        output = 'YEET'
+
     return output
 
 
@@ -338,7 +485,8 @@ def operand_type(self):
         '[': 'address',
         '+': 'relative',  # i want to remove these two relatives
         '-': 'relative',
-        '@': 'macros'
+        '@': 'macros',
+        '(': 'parameter'
     }
     try:
         output = op_type[self]
@@ -350,19 +498,65 @@ def operand_type(self):
     return output
 
 
-print(compiler('''.label
-ADD R1 R2
-.label
-DEC R2'''))
+def macro(self, a, d):  # self is the key (when defining or when checking if exists) a is the value. and d is def/read
+    if d == 'def':
+        macros[self] = a
+        return
+    else:
+        try:
+            output = macros[self]
+            return output
+        except KeyError:
+            return 'YEET'
 
 
-'''def libraries(self):
-    try:
-        func = getattr(string, self)
-        func('a', 'b', 'c')
-    except AttributeError:
-        print(CRED + "Syntax Error: Unknown Library function at line " + str(line) + CEND)
-        errors += f"-Syntax Error: Unknown Library function at line {str(line)}\n"
-    return'''
+def make_multi_word(self):
+    i = 0
+    op = ''
+    operand = []
+    max_len = len(self)
+    while i < max_len:
+        if self[i] == '[':
+            while self[i] != ']':
+                op += self[i]
+                i += 1
+            operand.append(op + ']')
+            op = ''
+        elif self[i] == ' ':
+            if op != '':
+                operand.append(op)
+            i += 1
+            continue
+        else:
+            op += self[i]
+        if i < max_len:
+            i += 1
+    return operand
+
+
+def make_parameter(self):
+    i = 0
+    op = ''
+    parameter = []
+    max_len = len(self)
+    while i < max_len:
+        if self[i] == '(':
+            while self[i] != ')':
+                op += self[i]
+                i += 1
+            parameter.append(op + ')')
+            return parameter
+        elif self[i] == ' ':
+            if op != '':
+                parameter.append(op)
+            i += 1
+            continue
+        else:
+            op += self[i]
+        if i < max_len:
+            i += 1
+
+
+print(compiler('''LIB array length (R1, R2)'''))
 
 
