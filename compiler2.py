@@ -1,9 +1,24 @@
 import os
+script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
 
 CRED = '\033[91m'
 CGREEN = '\033[32m'
 CEND = '\033[0m'
 allowed_chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_'
+memory_instructions = {'LOD', 'LLOD', 'STR', 'LSTR', 'CPY'}
+conditional_instructions = {'IF', 'ELIF', 'WHILE'}
+
+multiword_instructions = {'LOD', 'LLOD', 'STR', 'LSTR', 'JMP', 'CPY', 'BGE', 'BRE', 'BNE', 'BRL', 'BRG', 'BLE', 'BZR',
+                          'BNZ', 'BRN', 'BRP', 'BEV', 'BOD', 'CAL', 'BRC', 'BNC', 'DW'}
+
+relative_accepting_instructions = {'JMP', 'BGE', 'BRE', 'BNE', 'BRL', 'BRG', 'BLE', 'BZR', 'BNZ', 'BRN', 'BRP', 'BEV',
+                                   'BOD', 'CAL', 'BRC', 'BNC', 'PSH'}
+
+port_names = {'CPUBUS', 'TEXT', 'NUMB', 'SUPPORTED', 'SPECIAL', 'PROFILE', 'X', 'Y', 'COLOR', 'BUFFER', 'G-SPECIAL',
+              'ASCII', 'CHAR5', 'CHAR6', 'ASCII7', 'UTF8', 'UTF16', 'UTF32', 'T-SPECIAL', 'INT', 'UINT', 'BIN', 'HEX',
+              'FLOAT', 'FIXED', 'N-SPECIAL', 'ADDR', 'BUS', 'PAGE', 'S-SPECIAL', 'RNG', 'NOTE', 'INSTR', 'NLEG', 'WAIT',
+              'NADDR', 'DATA', 'M-SPECIAL', 'UD1', 'UD2', 'UD3', 'UD4', 'UD5', 'UD6', 'UD7', 'UD8', 'UD9', 'UD10',
+              'UD11', 'UD12', 'UD13', 'UD14', 'UD15', 'UD16'}
 
 
 def compiler(self):
@@ -16,30 +31,29 @@ def compiler(self):
 
     # setup on library
     lib_code = 'JMP .endFile\n'
-    header = {
-        'bits': False,
-        'minreg': False,
-        'minheap': False,
-        'run': False,
-        'minstack': False,
-        'import': False
-    }
+    headers = set()  # 'bits', 'minreg', 'minheap', 'run', 'minstack'
+
+    imported_libraries = set()
 
     # other setups
-    patterns = {
-        '&BITS': 8,
-        '&MINREG': 8,
-        '&MINHEAP': 16,
-        '&MINSTACK': 8,
-        '&MSB': -128,
-        '&SMSB': 64,
-        '&MAX': -1,
-        '&SMAX': 127,
-        '&UHALF': -16,
-        '&LHALF': 15,
+    macros = {
+        '@BITS': '8',
+        '@MINREG': '8',
+        '@MINHEAP': '16',
+        '@MINSTACK': '8',
+        '@MSB': '-128',
+        '@SMSB': '64',
+        '@MAX': '-1',
+        '@SMAX': '127',
+        '@UHALF': '-16',
+        '@LHALF': '15',
     }
-    labels = set()
-    macros = {}
+
+    temp = label_recogniser(lines)
+    labels = temp[0]
+    errors += temp[1]
+
+    ends = end_recogniser(lines)
 
     for line, a in enumerate(lines):
         if a == '\n':
@@ -47,21 +61,10 @@ def compiler(self):
         elif a.startswith(' '):
             a = remove_indent_spaces(a)
 
-        # # # # # # # # # # # # # # # Labels get sorted here # # # # # # # # # # # # # # #
+        # # # # # # # # # # # # # # # Labels # # # # # # # # # # # # # # #
 
-        if a.startswith('.'):  # check duplicated labels and paste them
-            i = 1
-            while i < len(a):  # cannot contain illegal chars
-                if a[i] not in allowed_chars:
-                    print(CRED + "Illegal Char Error: '" + a[i] + "' used at line " + str(line) + CEND)
-                    errors += f"-Illegal Char Error: '{a[i]}' used at line {str(line)}\n"
-                i += 1
-            if a in labels:  # cant have duplicates
-                print(CRED + "Syntax Error: Duplicate label used at line " + str(line) + CEND)
-                errors += f"-Syntax Error: Duplicate label used at line {str(line)}\n"
-            else:  # all went well here :D
-                labels.add(a)
-                instructions.append(a)
+        if a.startswith('.'):
+            instructions.append(a)
 
         # # # # # # # # # # # # # # # Instructions # # # # # # # # # # # # # # #
 
@@ -74,7 +77,7 @@ def compiler(self):
 
             # # # # # # # # # # # # # # # Library function Calls # # # # # # # # # # # # # # #
 
-            if '(' in operand or ')' in operand:  # this char is only used in library calls so it must be function/Error
+            if '(' in operands or ')' in operands:  # this char is only used in lib calls so it must be function/Error
                 if opcode != 'LCAL':  # there is no other instruction that uses parenthesis so it must be an Error
                     print(CRED + "Illegal Char Error: '(' used at line " + str(line) + CEND)
                     errors += f"-Illegal Char Error: '(' used at line {str(line)}\n"
@@ -82,31 +85,13 @@ def compiler(self):
                 if operands.count('(') != 1 or operands.count(')') != 1:  # only 1 pair of parenthesis allowed
                     print(CRED + "Syntax Error: Faulty function Call at line " + str(line) + CEND)
                     errors += f"-Syntax Error: Faulty function Call at line {str(line)}\n"
-                lib = operands[0:operands.index('(')]
-                lib = lib.replace('.', '/')
-                lib_name = lib.split('/')[0]
-                script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
-                rel_path = r"libraries/" + lib
-                abs_file_path = script_dir + rel_path
-
-                if os.path.isfile(abs_file_path):
-                    with open(abs_file_path) as f:
-                        lib_function = f.read()
-
-                else:
-                    if os.path.isdir(script_dir + r'libs/' + lib_name):
-                        print(CRED + "Syntax Error: Unknown library function at line " + str(line) + CEND)
-                        errors += f"-Syntax Error: Unknown library function at line {str(line)}\n"
-                    else:
-                        print(CRED + "Syntax Error: Unknown library at line " + str(line) + CEND)
-                        errors += f"-Syntax Error: Unknown library at line {str(line)}\n"
+                    break
 
             # # # # # # # # # # # # # # # Multiword on the operands # # # # # # # # # # # # # # #
 
-            if '[' in operand or ']' in operand:
-                if opcode not in {'LOD', 'LLOD', 'STR', 'LSTR', 'JMP', 'CPY', 'BGE', 'BRE', 'BNE', 'BRL', 'BRG', 'BLE',
-                                  'BZR', 'BNZ', 'BRN', 'BRP', 'BEV', 'BOD', 'CAL', 'BRC', 'BNC', 'DW'}:
-                    if '[' in operand and ']' in operand:
+            elif '[' in operands or ']' in operands:
+                if opcode not in multiword_instructions:
+                    if '[' in operands and ']' in operands:
                         print(CRED + "Syntax Error: The instruction '" + opcode + "' doesnt support multiword, at line "
                               + str(line) + CEND)
                         errors += f"-Illegal Char Error: '[' or ']' used at line {str(line)}\n"
@@ -116,26 +101,233 @@ def compiler(self):
 
             # # # # # # # # # # # # # # # Operand prefixes # # # # # # # # # # # # # # #
 
-            # # # # # # # # # # # # # # # Macros # # # # # # # # # # # # # # #
+            else:
+                operand = operands.split(' ')
 
-            # # # # # # # # # # # # # # #  # # # # # # # # # # # # # # #
+            op = []
+            for b in operand:
+                c = operand_type(b)
+                if c == 'ERROR':  # its not a valid operand or its a library name/path
+                    if opcode != 'LCAL':
+                        print(CRED + "Syntax Error: Unknown operand type used at line " + str(line) + CEND)
+                        errors += f"-Syntax Error: Unknown operand type used at line {str(line)}\n"
 
-            if op_num == 'YEET':  # can be an Error, header or an URCLpp exclusive instruction
+                elif c in {'imm', 'reg'}:
+                    op.append(b)
+
+                elif c == 'mem':
+                    if opcode in memory_instructions:
+                        op.append(b)
+                    else:
+                        print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line)
+                              + CEND)
+                        errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line)}\n"
+
+                elif c == 'label':
+                    b = b[1:]
+
+                    if b in labels:
+                        op.append(b)
+                    else:
+                        print(CRED + "Syntax Error: Unknown label used at line " + str(line) + CEND)
+                        errors += f"-Syntax Error: Unknown label used at line {str(line)}\n"
+
+                elif c == 'rel':
+                    if opcode in relative_accepting_instructions:
+                        op.append(b)
+                    else:
+                        print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line) +
+                              CEND)
+                        errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line)}\n"
+
+                elif c == 'port':
+                    if opcode in {'IN', 'OUT'}:
+                        if c[1:].isnumeric():
+                            op.append(b)
+
+                        elif c[1:] in port_names:
+                            op.append(b)
+                        else:
+                            print(CRED + "Syntax Error: Unknown Port name used at line " + str(line) + CEND)
+                            errors += f"-Syntax Error: Unknown Port name used at line {str(line)}\n"
+                    else:
+                        print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line)
+                              + CEND)
+                        errors += f"-Syntax Error: Wrong operand type for '" + opcode + "' used at line {str(line)}\n"
+
+                elif c == 'char':
+                    if b[1:].index("'") == 2:  # special chars like \n or \t or error
+                        if b[1:3] in {'\\n', '\\t', '\\r', '\\b', '\\v', '\\0'}:
+                            op.append(b)
+                        else:
+                            print(CRED + "Syntax Error: Unknown operand type used at line " + str(line) + CEND)
+                            errors += f"-Syntax Error: Unknown operand type used at line {str(line)}\n"
+
+                    elif len(b) == 3 and b[2] == "'":  # normal char
+                        op.append(b)
+                    else:
+                        print(CRED + "Syntax Error: Unknown operand type used at line " + str(line) + CEND)
+                        errors += f"-Syntax Error: Unknown operand type used at line {str(line)}\n"
+
+                elif c == 'cnd':
+                    if opcode in conditional_instructions:
+                        op.append(b)
+                    else:
+                        print(CRED + "Syntax Error: Wrong operand type for  '" + opcode + "' used at line " + str(line)
+                              + CEND)
+                        errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line)}\n"
+
+                elif c == 'macro':
+                    if opcode == '@define':
+                        if operand.index(b) == 1:  # its declaring a macro based on another macro, and that is a no :P
+                            print(CRED + "Syntax Error: Wrong operand type for second operand in '" + opcode +
+                                  "' used at line " + str(line) + CEND)
+                            errors += f"-Syntax Error: Wrong operand type for second operand in '{opcode}' used " \
+                                      f"at line {str(line)}\n"
+
+                    elif b[1:] in macros:
+                        b = macros[b]
+                        c = operand_type(b)
+                        if c == 'ERROR':  # its not a valid operand
+                            print(CRED + "Syntax Error: Unknown operand type used at line " + str(line) + CEND)
+                            errors += f"-Syntax Error: Unknown operand type used at line {str(line)}\n"
+
+                        elif c == 'mem':
+                            if opcode in memory_instructions:
+                                op.append(b)
+                            else:
+                                print(CRED + "Syntax Error: Wrong macro type for  '" + opcode + "' used at line " +
+                                      str(line) + CEND)
+                                errors += f"-Syntax Error: Wrong macro type for '{opcode}' used at line {str(line)}\n"
+
+                        elif c == 'rel':
+                            if opcode in relative_accepting_instructions:
+                                op.append(b)
+                            else:
+                                print(
+                                    CRED + "Syntax Error: Wrong macro type for '" + opcode + "' used at line " + str(
+                                        line) +
+                                    CEND)
+                                errors += f"-Syntax Error: Wrong macro type for '{opcode}' used at line {str(line)}\n"
+
+                        elif c == 'port':
+                            if opcode in {'IN', 'OUT'}:
+                                op.append(b)
+                            else:
+                                print(
+                                    CRED + "Syntax Error: Wrong macro type for '" + opcode + "' used at line " + str(
+                                        line) + CEND)
+                                errors += f"-Syntax Error: Wrong macro type for '" + opcode + "' used at line" \
+                                                                                                " {str(line)}\n"
+
+                        elif c == 'cnd':
+                            if opcode in conditional_instructions:
+                                op.append(b)
+                            else:
+                                print(CRED + "Syntax Error: Wrong macro type for  '" + opcode + "' used at line " +
+                                    str(line) + CEND)
+                                errors += f"-Syntax Error: Wrong macro type for '{opcode}' used at line {str(line)}\n"
+
+                        else:  # if c in {'imm', 'reg', 'char'}:
+                            op.append(b)
+
+            operand = op
+
+            # # # # # # # # # # # # # # # Opcodes # # # # # # # # # # # # # # #
+
+            if op_num == 'ERROR':  # can be an Error, header or an URCLpp exclusive instruction
                 op_num = new_opcodes(opcode)
-                if op_num == 'YEET':  # its not an URCLpp instruction neither, so its either an error or header
-                    if opcode in {'BITS', 'MINREG', 'MINHEAP', 'MINSTACK', 'RUN', 'IMPORT'}:  # its an Header
 
-                        # # # # # # # # # # # # # # # Headers # # # # # # # # # # # # # # #
+                if op_num == 'ERROR':  # its not an URCLpp instruction neither, so its either an error or header
+                    op_num = check_headers(opcode)
 
-                        pass
-                    else:  # its not an header neither, meaning its an error
+                    if op_num == 'ERROR':  # its not an header neither, meaning its an error
                         print(CRED + "Syntax Error: Unknown instruction at line " + str(line) + CEND)
                         errors += f"-Syntax Error: Unknown instruction at line {str(line)}\n"
+                    else:
+                        if op_num != len(operand):
+                            print(CRED + "Syntax Error: Wrong number of operands at line " + str(line) + CEND)
+                            errors += f"-Syntax Error: Wrong number of operands at line {str(line)}\n"
+                        else:
+
+                            # # # # # # # # # # # # # # # Headers # # # # # # # # # # # # # # #
+
+                            if opcode == 'BITS':
+                                if 'bits' in headers:
+                                    print(CRED + "Syntax Error: More than 1 'BITS' header at line " + str(line) + CEND)
+                                    errors += f"-Syntax Error: More than 1 'BITS' header at line {str(line)}\n"
+
+                                else:
+                                    headers.add('bits')
+                                    macros['@BITS'] = operand[1]
+
+                            elif opcode == 'MINREG':
+                                headers.add('minreg')
+
+                            elif opcode == 'MINHEAP':
+                                headers.add('')
+
+                            elif opcode == 'RUN':
+                                headers.add('')
+
+                            elif opcode == 'MINSTACK':
+                                headers.add('')
+
+                            elif opcode == 'IMPORT':
+                                lib_name = operand[0]
+                                if not os.path.isdir(script_dir + r'libs/' + lib_name):
+                                    print(CRED + "Syntax Error: Unknown library at line " + str(line) + CEND)
+                                    errors += f"-Syntax Error: Unknown library at line {str(line)}\n"
+
                 else:  # its a URCLpp exclusive instruction
 
-                    # # # # # # # # # # # # # # # URCLpp instruction # # # # # # # # # # # # # # #
+                    # # # # # # # # # # # # # # # URCLpp instructions # # # # # # # # # # # # # # #
 
-                    pass
+                    if opcode == 'END':  # ignore as its not used
+                        pass
+
+                    # # # # # # # # # # # # # # # Conditionals # # # # # # # # # # # # # # #
+
+                    elif opcode == 'IF':
+
+                        pass
+
+                    elif opcode == 'ELIF':
+                        pass
+
+                    elif opcode == 'ELSE':
+                        pass
+
+                    # # # # # # # # # # # # # # # Loops # # # # # # # # # # # # # # #
+
+                    elif opcode == 'FOR':
+                        pass
+
+                    elif opcode == 'WHILE':
+                        pass
+
+                    # # # # # # # # # # # # # # # Defining Macros # # # # # # # # # # # # # # #
+
+                    if opcode == '@define':
+
+                        pass
+
+                    # # # # # # # # # # # # # # # Library Call # # # # # # # # # # # # # # #
+
+                    if opcode == 'LCAL':
+                        lib = operands[0:operands.index('(')]
+                        lib = lib.replace('.', '/')
+                        rel_path = r"libraries/" + lib
+                        abs_file_path = script_dir + rel_path
+
+                        if os.path.isfile(abs_file_path):
+                            with open(abs_file_path) as f:
+                                lib_function = f.read()  # work here
+
+                        else:
+                            print(CRED + "Syntax Error: Unknown library at line " + str(line) + CEND)
+                            errors += f"-Syntax Error: Unknown library at line {str(line)}\n"
+
             else:  # its a normal instruction
 
                 # # # # # # # # # # # # # # # Main URCL instruction # # # # # # # # # # # # # # #
@@ -149,7 +341,7 @@ def compiler(self):
                 else:  # normal instruction here
                     instructions.append(opcode + ' ' + (' '.join(operand)))
 
-    return 'yeet'
+    return
 
 
 # # # # # # # # # # # # # # # Helper Functions below # # # # # # # # # # # # # # #
@@ -269,7 +461,7 @@ def opcodes(self):  # checks if the opcode is correct and returns the number of 
     try:
         output = operands[self]
     except KeyError:
-        output = 'YEET'
+        output = 'ERROR'
 
     return output
 
@@ -277,7 +469,7 @@ def opcodes(self):  # checks if the opcode is correct and returns the number of 
 def new_opcodes(self):
     operands = {
         # urcl++ exclusive below
-        'LCAL': 2,  # is never used but its here anyways
+        'LCAL': 2,
         '@define': 2,
         'IF': 3,
         'ELIF': 3,
@@ -285,14 +477,90 @@ def new_opcodes(self):
         'FOR': 2,
         'WHILE': 3,
         'SWITCH': 1,
-        'CASE': 1
+        'CASE': 1,
+        'END': 0,
     }
     try:
         output = operands[self]
     except KeyError:
-        output = 'YEET'
+        output = 'ERROR'
 
     return output
+
+
+def check_headers(self):
+    header = {
+        'IMPORT': 2,
+        'BITS': 2,
+        'MINREG': 1,
+        'MINHEAP': 1,
+        'RUN': 1,
+        'MINSTACK': 1,
+    }
+    try:
+        output = header[self]
+    except KeyError:
+        output = 'ERROR'
+
+    return output
+
+
+def operand_type(self):
+    if self.isnumeric():  # then its an IMM
+        return 'imm'
+    elif self[0] == "'":  # then its a char
+        return 'char'
+    else:
+        prefix = self[0]
+        op_type = {
+            'R': 'reg',
+            '$': 'reg',
+            '#': 'mem',
+            'M': 'mem',
+            '%': 'port',
+            '.': 'label',
+            '+': 'imm',
+            '-': 'imm',
+            '@': 'macro',
+            '~': 'rel',
+            '=': 'cnd',
+            '!': 'cnd',
+            '<': 'cnd',
+            '>': 'cnd'
+        }
+        try:
+            return op_type[prefix]
+
+        except KeyError:
+            return 'ERROR'
+
+
+def label_recogniser(self):
+    labels = set()
+    errors = ''
+
+    for line, a in enumerate(self):
+        if a.startswith('.'):
+            i = 1
+            while i < len(a):  # cannot contain illegal chars
+                if a[i] not in allowed_chars:
+                    print(CRED + "Illegal Char Error: '" + a[i] + "' used at line " + str(line) + CEND)
+                    errors += f"-Illegal Char Error: '{a[i]}' used at line {str(line)}\n"
+                i += 1
+            if a in labels:  # cant have duplicates
+                print(CRED + "Syntax Error: Duplicate label used at line " + str(line) + CEND)
+                errors += f"-Syntax Error: Duplicate label used at line {str(line)}\n"
+            else:  # all went well here :D
+                labels.add(a)
+    return [labels, errors]
+
+
+def end_recogniser(self):
+    ends = []
+    for line, a in enumerate(self):
+        if a == 'END':
+            ends.append(line)
+    return ends
 
 
 def lib_helper(self):  # must push and pop the args used and save and restore the registers
