@@ -70,7 +70,7 @@ def compiler(self):
 
         else:  # big work on instructions starts here :/
             opcode, operands_str = line.split(' ', 1)  # dividing instruction into opcode and operands
-            operant_count = opcodes(opcode)  # returns the n of operands the instruction needs, or YEET if URCLpp/Header/Error
+            operand_count = opcodes(opcode)  # returns the n of operands the instruction needs, or YEET if URCLpp/Header/Error
             operand_list = []
 
             # # # # # # # # # # # # # # # Library function Calls # # # # # # # # # # # # # # #
@@ -102,7 +102,7 @@ def compiler(self):
             else:
                 operand_list = operands_str.split(' ')
 
-            new_opperand_list = []
+            new_operand_list = []
             for operand in operand_list:
                 operand_type = operand_type_of(operand)
                 if operand_type == 'ERROR':  # its not a valid operand or its a library name/path
@@ -111,11 +111,11 @@ def compiler(self):
                         errors += f"-Syntax Error: Unknown operand type used at line {str(line_nr)}\n"
 
                 elif operand_type in {'imm', 'reg'}:
-                    new_opperand_list.append(operand)
+                    new_operand_list.append(operand)
 
                 elif operand_type == 'mem':
                     if opcode in memory_instructions:
-                        new_opperand_list.append(operand)
+                        new_operand_list.append(operand)
                     else:
                         print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr)
                               + CEND)
@@ -125,14 +125,14 @@ def compiler(self):
                     operand = operand[1:]
 
                     if operand in labels:
-                        new_opperand_list.append(operand)
+                        new_operand_list.append(operand)
                     else:
                         print(CRED + "Syntax Error: Unknown label used at line " + str(line_nr) + CEND)
                         errors += f"-Syntax Error: Unknown label used at line {str(line_nr)}\n"
 
                 elif operand_type == 'rel':
                     if opcode in relative_accepting_instructions:
-                        new_opperand_list.append(operand)
+                        new_operand_list.append(operand)
                     else:
                         print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr) +
                               CEND)
@@ -141,10 +141,10 @@ def compiler(self):
                 elif operand_type == 'port':
                     if opcode in {'IN', 'OUT'}:
                         if operand_type[1:].isnumeric():
-                            new_opperand_list.append(operand)
+                            new_operand_list.append(operand)
 
                         elif operand_type[1:] in port_names:
-                            new_opperand_list.append(operand)
+                            new_operand_list.append(operand)
                         else:
                             print(CRED + "Syntax Error: Unknown Port name used at line " + str(line_nr) + CEND)
                             errors += f"-Syntax Error: Unknown Port name used at line {str(line_nr)}\n"
@@ -156,20 +156,20 @@ def compiler(self):
                 elif operand_type == 'char':
                     if operand[1:].index("'") == 2:  # special chars like \n or \t or error
                         if operand[1:3] in {'\\n', '\\t', '\\r', '\\b', '\\v', '\\0'}:
-                            new_opperand_list.append(operand)
+                            new_operand_list.append(operand)
                         else:
                             print(CRED + "Syntax Error: Unknown operand type used at line " + str(line_nr) + CEND)
                             errors += f"-Syntax Error: Unknown operand type used at line {str(line_nr)}\n"
 
                     elif len(operand) == 3 and operand[2] == "'":  # normal char
-                        new_opperand_list.append(operand)
+                        new_operand_list.append(operand)
                     else:
                         print(CRED + "Syntax Error: Unknown operand type used at line " + str(line_nr) + CEND)
                         errors += f"-Syntax Error: Unknown operand type used at line {str(line_nr)}\n"
 
                 elif operand_type == 'cnd':
                     if opcode in conditional_instructions:
-                        new_opperand_list.append(operand)
+                        new_operand_list.append(operand)
                     else:
                         print(CRED + "Syntax Error: Wrong operand type for  '" + opcode + "' used at line " + str(line_nr)
                               + CEND)
@@ -192,7 +192,7 @@ def compiler(self):
 
                         elif operand_type == 'mem':
                             if opcode in memory_instructions:
-                                new_opperand_list.append(operand)
+                                new_operand_list.append(operand)
                             else:
                                 print(CRED + "Syntax Error: Wrong macro type for  '" + opcode + "' used at line " +
                                       str(line_nr) + CEND)
@@ -200,7 +200,7 @@ def compiler(self):
 
                         elif operand_type == 'rel':
                             if opcode in relative_accepting_instructions:
-                                new_opperand_list.append(operand)
+                                new_operand_list.append(operand)
                             else:
                                 print(
                                     CRED + "Syntax Error: Wrong macro type for '" + opcode + "' used at line " + str(
@@ -210,7 +210,7 @@ def compiler(self):
 
                         elif operand_type == 'port':
                             if opcode in {'IN', 'OUT'}:
-                                new_opperand_list.append(operand)
+                                new_operand_list.append(operand)
                             else:
                                 print(
                                     CRED + "Syntax Error: Wrong macro type for '" + opcode + "' used at line " + str(
@@ -220,30 +220,30 @@ def compiler(self):
 
                         elif operand_type == 'cnd':
                             if opcode in conditional_instructions:
-                                new_opperand_list.append(operand)
+                                new_operand_list.append(operand)
                             else:
                                 print(CRED + "Syntax Error: Wrong macro type for  '" + opcode + "' used at line " +
                                     str(line_nr) + CEND)
                                 errors += f"-Syntax Error: Wrong macro type for '{opcode}' used at line {str(line_nr)}\n"
 
                         else:  # if operand_type in {'imm', 'reg', 'char'}:
-                            new_opperand_list.append(operand)
+                            new_operand_list.append(operand)
 
-            operand_list = new_opperand_list
+            operand_list = new_operand_list
 
             # # # # # # # # # # # # # # # Opcodes # # # # # # # # # # # # # # #
 
-            if operant_count == 'ERROR':  # can be an Error, header or an URCLpp exclusive instruction
-                operant_count = new_opcodes(opcode)
+            if operand_count == 'ERROR':  # can be an Error, header or an URCLpp exclusive instruction
+                operand_count = new_opcodes(opcode)
 
-                if operant_count == 'ERROR':  # its not an URCLpp instruction neither, so its either an error or header
-                    operant_count = check_headers(opcode)
+                if operand_count == 'ERROR':  # its not an URCLpp instruction neither, so its either an error or header
+                    operand_count = check_headers(opcode)
 
-                    if operant_count == 'ERROR':  # its not an header neither, meaning its an error
+                    if operand_count == 'ERROR':  # its not an header neither, meaning its an error
                         print(CRED + "Syntax Error: Unknown instruction at line " + str(line_nr) + CEND)
                         errors += f"-Syntax Error: Unknown instruction at line {str(line_nr)}\n"
                     else:
-                        if operant_count != len(operand_list):
+                        if operand_count != len(operand_list):
                             print(CRED + "Syntax Error: Wrong number of operands at line " + str(line_nr) + CEND)
                             errors += f"-Syntax Error: Wrong number of operands at line {str(line_nr)}\n"
                         else:
@@ -330,8 +330,8 @@ def compiler(self):
 
                 # # # # # # # # # # # # # # # Main URCL instruction # # # # # # # # # # # # # # #
 
-                if operant_count != len(operand_list):  # either wrong number of operands or use smart typing
-                    if operant_count + 1 == len(operand_list):  # smart typing it is
+                if operand_count != len(operand_list):  # either wrong number of operands or use smart typing
+                    if operand_count + 1 == len(operand_list):  # smart typing it is
                         instructions.append(opcode + ' ' + str(operand_list[0]) + ' ' + (' '.join(operand_list)))
                     else:
                         print(CRED + "Syntax Error: Wrong number of operands at line " + str(line_nr) + CEND)
