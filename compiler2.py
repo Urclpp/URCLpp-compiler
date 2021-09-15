@@ -1,6 +1,8 @@
 import os
 script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
 
+from timeit import default_timer as timer
+
 CRED = '\033[91m'
 CGREEN = '\033[32m'
 CEND = '\033[0m'
@@ -22,12 +24,14 @@ port_names = {'CPUBUS', 'TEXT', 'NUMB', 'SUPPORTED', 'SPECIAL', 'PROFILE', 'X', 
 
 
 def compiler(self):
+    start = timer()
     # setup on the program
     self = remove_comments(self)  # removes comments inline or multi line
     self = self.replace(',', '')  # removes commas from the program to maximise compatibility with old programs
     lines = self.split('\n')
     instructions = []
     errors = ''
+    print('\nCompiling...')
 
     # setup on library
     lib_code = 'JMP .endFile\n'
@@ -133,25 +137,25 @@ def compiler(self):
                             print(CRED + "Syntax Error: Undefined macro used at line " + str(line) + CEND)
                             errors += f"-Syntax Error: Undefined macro used at line {str(line)}\n"
 
-            operands = operands.replace(temp, '')
-            if operands[0] == ' ':  # then multiword is not the first operand
-                if ' ' in operands[1:]:  # it has 2 non multiword operands
-                    op = operands[1:].split(' ')
-                    operand.append(op[0])
-                    operand.append(temp)
-                    operand.append(op[1])
-                else:  # 1 op and a multiword op
-                    operand.append(operands[1:])
-                    operand.append(temp)
+                operands = operands.replace(temp, '')
+                if operands[0] == ' ':  # then multiword is not the first operand
+                    if ' ' in operands[1:]:  # it has 2 non multiword operands
+                        op = operands[1:].split(' ')
+                        operand.append(op[0])
+                        operand.append(temp)
+                        operand.append(op[1])
+                    else:  # 1 op and a multiword op
+                        operand.append(operands[1:])
+                        operand.append(temp)
 
-            else:  # multiword is the first operand
-                operand.append(temp)
-                if ' ' in operands[1:]:
-                    op = operands[1:].split(' ')
-                    operand.append(op[0])
-                    operand.append(op[1])
-                else:
-                    operand.append(operands[1:])
+                else:  # multiword is the first operand
+                    operand.append(temp)
+                    if ' ' in operands[1:]:
+                        op = operands[1:].split(' ')
+                        operand.append(op[0])
+                        operand.append(op[1])
+                    else:
+                        operand.append(operands[1:])
 
             # # # # # # # # # # # # # # # Operand prefixes # # # # # # # # # # # # # # #
 
@@ -159,6 +163,7 @@ def compiler(self):
                 operand = operands.split(' ')
 
             op = []
+
             for b in operand:
                 c = operand_type(b)
 
@@ -241,6 +246,8 @@ def compiler(self):
                                   "' used at line " + str(line) + CEND)
                             errors += f"-Syntax Error: Wrong operand type for second operand in '{opcode}' used " \
                                       f"at line {str(line)}\n"
+                        else:
+                            op.append(b)
 
                     elif b in macros:
                         b = macros[b]
@@ -336,7 +343,6 @@ def compiler(self):
                     # # # # # # # # # # # # # # # Defining Macros # # # # # # # # # # # # # # #
 
                     if opcode == '@define':
-
                         macros[operand[0]] = operand[1]
 
                     # # # # # # # # # # # # # # # Library Call # # # # # # # # # # # # # # #
@@ -358,23 +364,25 @@ def compiler(self):
             # # # # # # # # # # # # # # # Main URCL instruction # # # # # # # # # # # # # # #
 
             else:  # its a normal instruction
-
                 if op_num != len(operand):  # either wrong number of operands or use smart typing
-                    if op_num + 1 == len(operand):  # smart typing it is
+                    if op_num - 1 == len(operand):  # smart typing it is
                         instructions.append(opcode + ' ' + str(operand[0]) + ' ' + (' '.join(operand)))
                     else:
                         print(CRED + "Syntax Error: Wrong number of operands at line " + str(line) + CEND)
                         errors += f"-Syntax Error: Wrong number of operands at line {str(line)}\n"
                 else:  # normal instruction here
                     instructions.append(opcode + ' ' + (' '.join(operand)))
-
-    return
+    end = timer()
+    print(f'Operation Completed in {latency(start, end)}ms!')
+    return instructions
 
 
 # # # # # # # # # # # # # # # Helper Functions below # # # # # # # # # # # # # # #
 
 def get_input():
-    return input('Paste here your program:\n')
+    with open('debug_test.urcl') as f:  # get sample program to debug
+        return f.read()
+    # return input('Paste here your program:\n')
 
 
 def remove_indent_spaces(self):
@@ -559,7 +567,6 @@ def operand_type(self):
         }
         try:
             return op_type[prefix]
-
         except KeyError:
             return 'ERROR'
 
@@ -625,6 +632,14 @@ def macro_operand_valid(op_type, opcode, line):
         pass
 
     return errors
+
+
+def latency(start, end):
+    total_time = round((end - start)/1000)
+    if total_time < 1:
+        return '~0'
+    else:
+        return f'~{total_time}'
 
 
 def lib_helper(self):  # must push and pop the args used and save and restore the registers

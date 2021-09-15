@@ -1,0 +1,4 @@
+@define @var R1
+ADD R1 R2
+INC @var
+IN R1 101
