@@ -13,6 +13,9 @@ conditional_instructions = {'IF', 'ELIF', 'WHILE'}
 multiword_instructions = {'LOD', 'LLOD', 'STR', 'LSTR', 'JMP', 'CPY', 'BGE', 'BRE', 'BNE', 'BRL', 'BRG', 'BLE', 'BZR',
                           'BNZ', 'BRN', 'BRP', 'BEV', 'BOD', 'CAL', 'BRC', 'BNC', 'DW'}
 
+branch_instructions = {'JMP', 'BGE', 'BRE', 'BNE', 'BRL', 'BRG', 'BLE', 'BZR', 'BNZ', 'BRN', 'BRP', 'BEV', 'BOD', 'CAL',
+                       'BRC', 'BNC'}
+
 relative_accepting_instructions = {'JMP', 'BGE', 'BRE', 'BNE', 'BRL', 'BRG', 'BLE', 'BZR', 'BNZ', 'BRN', 'BRP', 'BEV',
                                    'BOD', 'CAL', 'BRC', 'BNC', 'PSH'}
 
@@ -38,6 +41,7 @@ def compiler(source):
     headers = set()  # 'bits', 'minreg', 'minheap', 'run', 'minstack'
 
     imported_libraries = set()
+    called_lib_functions = set()
 
     # other setups
     macros = {
@@ -76,12 +80,12 @@ def compiler(source):
         parts = line.split(' ', 1)  # dividing instruction into opcode and operands
         opcode = parts[0]
         operands_str = parts[1]
-        operand_count = opcode_op_count(opcode)  # returns the n of operands the instruction needs, or YEET if URCLpp/Header/Error
+        operand_count = opcode_op_count(opcode)  # return num of operands of instruction, or YEET if URCLpp/Header/Error
         operands = []
 
         # # # # # # # # # # # # # # # Library function Calls # # # # # # # # # # # # # # #
 
-        if '(' in operands_str or ')' in operands_str:  # this char is only used in lib calls so it must be function/Error
+        if '(' in operands_str or ')' in operands_str:  # this char is only used in lib calls so it must be func/Error
             if opcode != 'LCAL':  # there is no other instruction that uses parenthesis so it must be an Error
                 print(CRED + "Illegal Char Error: '(' used at line " + str(line_nr) + CEND)
                 errors += f"-Illegal Char Error: '(' used at line {str(line_nr)}\n"
@@ -114,8 +118,8 @@ def compiler(source):
         elif '[' in operands_str or ']' in operands_str:
             if opcode not in multiword_instructions:
                 if '[' in operands_str and ']' in operands_str:
-                    print(CRED + "Syntax Error: The instruction '" + opcode + "' doesnt support multiword, at line "
-                            + str(line_nr) + CEND)
+                    print(CRED + "Syntax Error: The instruction '" + opcode + "' doesnt support multiword, at line " +
+                          str(line_nr) + CEND)
                     errors += f"-Illegal Char Error: '[' or ']' used at line {str(line_nr)}\n"
                 else:
                     print(CRED + "Illegal Char Error: '[' or ']' used at line " + str(line_nr) + CEND)
@@ -158,6 +162,29 @@ def compiler(source):
                 else:
                     operands.append(operands_str[1:])
 
+        # # # # # # # # # # # # # # # String as a multiword operand on DW # # # # # # # # # # # # # # #
+
+        elif '"' in operands_str:
+            if opcode != 'DW' and operands_str.count('"') == 2:  # strings must be in the form of a multiword DW
+                print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr) +
+                      CEND)
+                errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
+
+            elif operands_str.count('"') != 2:
+                print(CRED + "Illegal Char Error: '\"' used at line " + str(line_nr) + CEND)
+                errors += f"-Illegal Char Error: '\"' used at line {str(line_nr)}\n"
+
+            else:
+                string_ = operands_str[operands_str.index('"') + 1 :operands_str.rindex('"')]
+                split_string = list(string_)
+                final_operand = '['
+                for char in split_string:
+                    final_operand += f"'{char}' "
+
+                final_operand = final_operand[:-1] + ']'
+                instructions.append('DW ' + final_operand)
+                continue
+
         # # # # # # # # # # # # # # # Operand prefixes # # # # # # # # # # # # # # #
 
         else:
@@ -182,8 +209,8 @@ def compiler(source):
                 if opcode in memory_instructions:
                     valid_operands.append(arg)
                 else:
-                    print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr)
-                            + CEND)
+                    print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr) +
+                          CEND)
                     errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
 
             elif operand_type == 'label':
@@ -200,7 +227,7 @@ def compiler(source):
                     valid_operands.append(arg)
                 else:
                     print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr) +
-                            CEND)
+                          CEND)
                     errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
 
             elif operand_type == 'port':
@@ -214,8 +241,8 @@ def compiler(source):
                         print(CRED + "Syntax Error: Unknown Port name used at line " + str(line_nr) + CEND)
                         errors += f"-Syntax Error: Unknown Port name used at line {str(line_nr)}\n"
                 else:
-                    print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr)
-                            + CEND)
+                    print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr) +
+                          CEND)
                     errors += f"-Syntax Error: Wrong operand type for '" + opcode + "' used at line {str(line)}\n"
 
             elif operand_type == 'char':
@@ -237,16 +264,16 @@ def compiler(source):
                     valid_operands.append(arg)
                 else:
                     print(CRED + "Syntax Error: Wrong operand type for  '" + opcode + "' used at line " + str(line_nr)
-                            + CEND)
+                          + CEND)
                     errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
 
             elif operand_type == 'macro':
                 if opcode == '@define':
                     if operands.index(arg) == 1:  # its declaring a macro based on another macro, and that is a no :P
                         print(CRED + "Syntax Error: Wrong operand type for second operand in '" + opcode +
-                                "' used at line " + str(line_nr) + CEND)
+                              "' used at line " + str(line_nr) + CEND)
                         errors += f"-Syntax Error: Wrong operand type for second operand in '{opcode}' used " \
-                                    f"at line {str(line_nr)}\n"
+                                  f"at line {str(line_nr)}\n"
                     else:
                         valid_operands.append(arg)
 
@@ -267,6 +294,46 @@ def compiler(source):
 
         operands = valid_operands
 
+        # # # # # # # # # # # # # # # First Operand type checks # # # # # # # # # # # # # # #
+
+        if operand_count != 'ERROR':  # then its a main URCL instruction
+            destination_operand_type = operand_type_of(operands[0])
+
+            if destination_operand_type not in {'reg', 'port', 'rel', 'label', 'mem'}:  # operand 1 must be address/reg
+                if destination_operand_type == 'imm' and opcode in memory_instructions:
+                    print(CRED + "Warning: Immediate values should NOT be used as addresses in memory instructions at "
+                                 "line " + str(line_nr) + CEND)
+                    errors += f"-Warning: Immediate values should NOT be used as addresses in memory instructions at " \
+                              f"line {str(line_nr)}\n"
+
+                elif destination_operand_type == 'imm' and opcode == 'PSH':  # this is the only exception to the rule
+                    pass
+
+                else:
+                    print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr) +
+                          CEND)
+                    errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
+                    break
+
+            else:
+                if opcode in {'STR', 'LSTR', 'CPY'} and destination_operand_type not in {'mem', 'reg'}:
+                    print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr) +
+                          CEND)
+                    errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
+
+                elif opcode in branch_instructions and destination_operand_type not in {'rel', 'reg', 'label', 'imm'}:
+                    print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr) +
+                          CEND)
+                    errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
+
+                elif opcode == 'OUT' and destination_operand_type != 'port':
+                    print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr) +
+                          CEND)
+                    errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
+
+                else:
+                    print('something shouldnt have ended up here. dig this up :/')
+
         # # # # # # # # # # # # # # # Opcodes # # # # # # # # # # # # # # #
 
         if operand_count == 'ERROR':  # can be an Error, header or an URCLpp exclusive instruction
@@ -283,8 +350,8 @@ def compiler(source):
 
                 else:
                     if operand_count != len(operands):
-                        print(CRED + "Syntax Error: Wrong number of operands at line " + str(line_nr) + CEND)
-                        errors += f"-Syntax Error: Wrong number of operands at line {str(line_nr)}\n"
+                        print(CRED + "Syntax Error: Wrong number of operands in Header at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Wrong number of operands in Header at line {str(line_nr)}\n"
                     else:
 
                         if opcode == 'BITS':
@@ -295,24 +362,61 @@ def compiler(source):
                             else:
                                 headers.add('bits')
                                 macros['@BITS'] = operands[1]
+                                macros['@MSB'] = str(-(2 ** (int(operands[1]) - 1)))
+                                macros['@SMSB'] = str(2 ** (int(operands[1]) - 2))
+                                macros['@SMAX'] = str((2 ** (int(operands[1]) - 1)) - 1)
+                                macros['@UHALF'] = str(-(2 ** (int(operands[1]) // 2)))
+                                macros['@LHALF'] = str((2 ** (int(operands[1]) // 2)) - 1)
 
                         elif opcode == 'MINREG':
-                            headers.add('minreg')
+                            if 'minreg' in headers:
+                                print(CRED + "Syntax Error: More than 1 'MINREG' header at line " + str(line_nr) + CEND)
+                                errors += f"-Syntax Error: More than 1 'MINREG' header at line {str(line_nr)}\n"
+
+                            else:
+                                headers.add('minreg')
+                                macros['@MINREG'] = operands[0]
 
                         elif opcode == 'MINHEAP':
-                            headers.add('')
+                            if 'minheap' in headers:
+                                print(CRED + "Syntax Error: More than 1 'MINHEAP' header at line " + str(line_nr) + CEND)
+                                errors += f"-Syntax Error: More than 1 'MINHEAP' header at line {str(line_nr)}\n"
+
+                            else:
+                                headers.add('minheap')
+                                macros['@MINHEAP'] = operands[0]
 
                         elif opcode == 'RUN':
-                            headers.add('')
+                            if 'run' in headers:
+                                print(CRED + "Syntax Error: More than 1 'RUN' header at line " + str(line_nr) + CEND)
+                                errors += f"-Syntax Error: More than 1 'RUN' header at line {str(line_nr)}\n"
+
+                            else:
+                                headers.add('run')
+                                macros['@RUN'] = operands[0]
 
                         elif opcode == 'MINSTACK':
-                            headers.add('')
+                            if 'minstack' in headers:
+                                print(CRED + "Syntax Error: More than 1 'MINSTACK' header at line " + str(line_nr) + CEND)
+                                errors += f"-Syntax Error: More than 1 'MINSTACK' header at line {str(line_nr)}\n"
+
+                            else:
+                                headers.add('minstack')
+                                macros['@MINSTACK'] = operands[0]
 
                         elif opcode == 'IMPORT':
                             lib_name = operands[0]
                             if not os.path.isdir(script_dir + r'libs/' + lib_name):
                                 print(CRED + "Syntax Error: Unknown library at line " + str(line_nr) + CEND)
                                 errors += f"-Syntax Error: Unknown library at line {str(line_nr)}\n"
+
+                            elif lib_name in imported_libraries:
+                                print(CRED + "Warning: Library already imported in previous statement at line " +
+                                      str(line_nr) + CEND)
+                                errors += f"-Warning: Library already imported in previous statement at line " \
+                                          f"{str(line_nr)}\n"
+                            else:
+                                imported_libraries.add(lib_name)
 
             # # # # # # # # # # # # # # # URCLpp instructions # # # # # # # # # # # # # # #
 
@@ -383,7 +487,7 @@ def compiler(source):
 
 def get_input():
     # get sample program to debug in text, open in read text mode
-    with open('debug_test.urcl', mode='r') as f:  
+    with open('debug_test.urcl', mode='r') as f:
         return f.read()
 
 
@@ -490,8 +594,6 @@ def opcode_op_count(opcode):  # checks if the opcode is correct and returns the 
         'SETNC': 3,
         'LLOD': 3,
         'LSTR': 3,
-        # URCLpp exclusive
-        'END': 0,
         # Directives
         'DW': 1
     }
@@ -545,8 +647,6 @@ def check_headers(header_name):
 def operand_type_of(operand):
     if operand.isnumeric():  # then its an IMM
         return 'imm'
-    elif operand[0] == "'":  # then its a char
-        return 'char'
     else:
         prefix = operand[0]
         op_type = {
@@ -560,12 +660,14 @@ def operand_type_of(operand):
             '-': 'imm',
             '@': 'macro',
             '~': 'rel',
+            "'": 'char',
             '=': 'cnd',
             '!': 'cnd',
             '<': 'cnd',
             '>': 'cnd',
             '(': 'arg',  # wont be used but its here anyways
             '[': 'multi',
+            '"': 'string',
         }
         try:
             return op_type[prefix]
@@ -637,7 +739,7 @@ def macro_operand_valid(op_type, opcode, line_nr):
 
 
 def latency(start, end):
-    total_time = round((end - start)/1000)
+    total_time = round((end - start)*1000)
     if total_time < 1:
         return '~0'
     else:

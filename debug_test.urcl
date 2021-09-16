@@ -2,3 +2,4 @@
 ADD R1 R2
 INC @var
 IN R1 101
+DW "Hello World"
