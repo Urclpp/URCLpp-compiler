@@ -74,6 +74,8 @@ def compiler(source):
             instructions.append(line)
             continue
 
+        if line == '':
+            continue
         # # # # # # # # # # # # # # # Instructions # # # # # # # # # # # # # # #
 
         # big work on instructions starts here :/
