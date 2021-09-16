@@ -62,315 +62,318 @@ def compiler(source):
             break
         elif line.startswith(' '):
             line = remove_indent_spaces(line)
+            continue
 
         # # # # # # # # # # # # # # # Labels # # # # # # # # # # # # # # #
 
         if line.startswith('.'):
             instructions.append(line)
+            continue
 
         # # # # # # # # # # # # # # # Instructions # # # # # # # # # # # # # # #
 
-        else:  # big work on instructions starts here :/
-            parts = line.split(' ', 1)  # dividing instruction into opcode and operands
-            opcode = parts[0]
-            operands_str = parts[1]
-            operand_count = opcode_op_count(opcode)  # returns the n of operands the instruction needs, or YEET if URCLpp/Header/Error
-            operands = []
+        # big work on instructions starts here :/
+        parts = line.split(' ', 1)  # dividing instruction into opcode and operands
+        opcode = parts[0]
+        operands_str = parts[1]
+        operand_count = opcode_op_count(opcode)  # returns the n of operands the instruction needs, or YEET if URCLpp/Header/Error
+        operands = []
 
-            # # # # # # # # # # # # # # # Library function Calls # # # # # # # # # # # # # # #
+        # # # # # # # # # # # # # # # Library function Calls # # # # # # # # # # # # # # #
 
-            if '(' in operands_str or ')' in operands_str:  # this char is only used in lib calls so it must be function/Error
-                if opcode != 'LCAL':  # there is no other instruction that uses parenthesis so it must be an Error
-                    print(CRED + "Illegal Char Error: '(' used at line " + str(line_nr) + CEND)
-                    errors += f"-Illegal Char Error: '(' used at line {str(line_nr)}\n"
+        if '(' in operands_str or ')' in operands_str:  # this char is only used in lib calls so it must be function/Error
+            if opcode != 'LCAL':  # there is no other instruction that uses parenthesis so it must be an Error
+                print(CRED + "Illegal Char Error: '(' used at line " + str(line_nr) + CEND)
+                errors += f"-Illegal Char Error: '(' used at line {str(line_nr)}\n"
 
-                if operands_str.count('(') != 1 or operands_str.count(')') != 1:  # only 1 pair of parenthesis allowed
-                    print(CRED + "Syntax Error: Faulty function Call at line " + str(line_nr) + CEND)
-                    errors += f"-Syntax Error: Faulty function Call at line {str(line_nr)}\n"
-                    break
+            if operands_str.count('(') != 1 or operands_str.count(')') != 1:  # only 1 pair of parenthesis allowed
+                print(CRED + "Syntax Error: Faulty function Call at line " + str(line_nr) + CEND)
+                errors += f"-Syntax Error: Faulty function Call at line {str(line_nr)}\n"
+                break
 
-                args_str = operands_str[(operands_str.index('(') + 1):operands_str.index(')')]
-                args = args_str.split(' ')
-                for arg in args:
-                    if arg[0] == '@':
-                        if arg in macros:
-                            arg = macros[arg]
-                            operand_type = operand_type_of(arg)
-
-                            if operand_type not in {'imm', 'label', 'mem', 'char', 'port', 'rel'}:
-                                print(CRED + "Syntax Error: Invalid macro type passed at line " + str(line_nr) + CEND)
-                                errors += f"-Syntax Error: Invalid macro type passed at line {str(line_nr)}\n"
-                        else:
-                            print(CRED + "Syntax Error: Undefined macro used at line " + str(line_nr) + CEND)
-                            errors += f"-Syntax Error: Undefined macro used at line {str(line_nr)}\n"
-
-                operands.append(operands_str[0:operands_str.index('(')])
-                operands.append(args_str)
-
-            # # # # # # # # # # # # # # # Multiword on the operands # # # # # # # # # # # # # # #
-
-            elif '[' in operands_str or ']' in operands_str:
-                if opcode not in multiword_instructions:
-                    if '[' in operands_str and ']' in operands_str:
-                        print(CRED + "Syntax Error: The instruction '" + opcode + "' doesnt support multiword, at line "
-                              + str(line_nr) + CEND)
-                        errors += f"-Illegal Char Error: '[' or ']' used at line {str(line_nr)}\n"
-                    else:
-                        print(CRED + "Illegal Char Error: '[' or ']' used at line " + str(line_nr) + CEND)
-                        errors += f"-Illegal Char Error: '[' or ']' used at line {str(line_nr)}\n"
-
-                args_str = operands_str[(operands_str.index('[') + 1):operands_str.index(']')]
-
-                for arg in args_str.split(' '):
-                    if arg[0] == '@':
-                        if arg in macros:
-                            arg = macros[arg]
-                            operand_type = operand_type_of(arg)
-
-                            if operand_type not in {'imm', 'label', 'reg'}:
-                                print(CRED + "Syntax Error: Invalid macro type used at line " + str(line_nr) + CEND)
-                                errors += f"-Syntax Error: Invalid macro type used at line {str(line_nr)}\n"
-
-                        else:
-                            print(CRED + "Syntax Error: Undefined macro used at line " + str(line_nr) + CEND)
-                            errors += f"-Syntax Error: Undefined macro used at line {str(line_nr)}\n"
-
-                operands_str = operands_str.replace(args_str, '')
-                if operands_str[0] == ' ':  # then multiword is not the first operand
-                    if ' ' in operands_str[1:]:  # it has 2 non multiword operands
-                        first_2_operands = operands_str[1:].split(' ')
-                        assert len(first_2_operands) >= 2
-                        operands.append(first_2_operands[0])
-                        operands.append(args_str)
-                        operands.append(first_2_operands[1])
-                    else:  # 1 op and a multiword op
-                        operands.append(operands_str[1:])
-                        operands.append(args_str)
-
-                else:  # multiword is the first operand
-                    operands.append(args_str)
-                    if ' ' in operands_str[1:]:
-                        first_2_operands = operands_str[1:].split(' ', 2)
-                        assert len(first_2_operands) >= 2
-                        operands.extend(first_2_operands)
-                    else:
-                        operands.append(operands_str[1:])
-
-            # # # # # # # # # # # # # # # Operand prefixes # # # # # # # # # # # # # # #
-
-            else:
-                operands = operands_str.split(' ')
-
-            valid_operands = []
-            # for some reason, arg is already defined here wtf
-            for arg in operands:
-                operand_type = operand_type_of(arg)
-
-                if opcode == 'LCAL':  # LCAL has its operands sorted already
-                    break
-
-                if operand_type == 'ERROR':  # its not a valid operand
-                    print(CRED + "Syntax Error: Unknown operand type used at line " + str(line_nr) + CEND)
-                    errors += f"-Syntax Error: Unknown operand type used at line {str(line_nr)}\n"
-
-                elif operand_type in {'imm', 'reg'}:
-                    valid_operands.append(arg)
-
-                elif operand_type == 'mem':
-                    if opcode in memory_instructions:
-                        valid_operands.append(arg)
-                    else:
-                        print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr)
-                              + CEND)
-                        errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
-
-                elif operand_type == 'label':
-                    arg = arg[1:]
-
-                    if arg in labels:
-                        valid_operands.append(arg)
-                    else:
-                        print(CRED + "Syntax Error: Unknown label used at line " + str(line_nr) + CEND)
-                        errors += f"-Syntax Error: Unknown label used at line {str(line_nr)}\n"
-
-                elif operand_type == 'rel':
-                    if opcode in relative_accepting_instructions:
-                        valid_operands.append(arg)
-                    else:
-                        print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr) +
-                              CEND)
-                        errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
-
-                elif operand_type == 'port':
-                    if opcode in {'IN', 'OUT'}:
-                        if operand_type[1:].isnumeric():
-                            valid_operands.append(arg)
-
-                        elif operand_type[1:] in port_names:
-                            valid_operands.append(arg)
-                        else:
-                            print(CRED + "Syntax Error: Unknown Port name used at line " + str(line_nr) + CEND)
-                            errors += f"-Syntax Error: Unknown Port name used at line {str(line_nr)}\n"
-                    else:
-                        print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr)
-                              + CEND)
-                        errors += f"-Syntax Error: Wrong operand type for '" + opcode + "' used at line {str(line)}\n"
-
-                elif operand_type == 'char':
-                    if arg[1:].index("'") == 2:  # special chars like \n or \t or error
-                        if arg[1:3] in {'\\n', '\\t', '\\r', '\\b', '\\v', '\\0'}:
-                            valid_operands.append(arg)
-                        else:
-                            print(CRED + "Syntax Error: Unknown operand type used at line " + str(line_nr) + CEND)
-                            errors += f"-Syntax Error: Unknown operand type used at line {str(line_nr)}\n"
-
-                    elif len(arg) == 3 and arg[2] == "'":  # normal char
-                        valid_operands.append(arg)
-                    else:
-                        print(CRED + "Syntax Error: Unknown operand type used at line " + str(line_nr) + CEND)
-                        errors += f"-Syntax Error: Unknown operand type used at line {str(line_nr)}\n"
-
-                elif operand_type == 'cnd':
-                    if opcode in conditional_instructions:
-                        valid_operands.append(arg)
-                    else:
-                        print(CRED + "Syntax Error: Wrong operand type for  '" + opcode + "' used at line " + str(line_nr)
-                              + CEND)
-                        errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
-
-                elif operand_type == 'macro':
-                    if opcode == '@define':
-                        if operands.index(arg) == 1:  # its declaring a macro based on another macro, and that is a no :P
-                            print(CRED + "Syntax Error: Wrong operand type for second operand in '" + opcode +
-                                  "' used at line " + str(line_nr) + CEND)
-                            errors += f"-Syntax Error: Wrong operand type for second operand in '{opcode}' used " \
-                                      f"at line {str(line_nr)}\n"
-                        else:
-                            valid_operands.append(arg)
-
-                    elif arg in macros:
+            args_str = operands_str[(operands_str.index('(') + 1):operands_str.index(')')]
+            args = args_str.split(' ')
+            for arg in args:
+                if arg[0] == '@':
+                    if arg in macros:
                         arg = macros[arg]
                         operand_type = operand_type_of(arg)
-                        args_str = macro_operand_valid(operand_type, opcode, line_nr)
 
-                        if args_str == '':
-                            valid_operands.append(arg)
-                        else:
-                            errors += args_str
-                            break
+                        if operand_type not in {'imm', 'label', 'mem', 'char', 'port', 'rel'}:
+                            print(CRED + "Syntax Error: Invalid macro type passed at line " + str(line_nr) + CEND)
+                            errors += f"-Syntax Error: Invalid macro type passed at line {str(line_nr)}\n"
+                    else:
+                        print(CRED + "Syntax Error: Undefined macro used at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Undefined macro used at line {str(line_nr)}\n"
+
+            operands.append(operands_str[0:operands_str.index('(')])
+            operands.append(args_str)
+
+        # # # # # # # # # # # # # # # Multiword on the operands # # # # # # # # # # # # # # #
+
+        elif '[' in operands_str or ']' in operands_str:
+            if opcode not in multiword_instructions:
+                if '[' in operands_str and ']' in operands_str:
+                    print(CRED + "Syntax Error: The instruction '" + opcode + "' doesnt support multiword, at line "
+                            + str(line_nr) + CEND)
+                    errors += f"-Illegal Char Error: '[' or ']' used at line {str(line_nr)}\n"
+                else:
+                    print(CRED + "Illegal Char Error: '[' or ']' used at line " + str(line_nr) + CEND)
+                    errors += f"-Illegal Char Error: '[' or ']' used at line {str(line_nr)}\n"
+
+            args_str = operands_str[(operands_str.index('[') + 1):operands_str.index(']')]
+
+            for arg in args_str.split(' '):
+                if arg[0] == '@':
+                    if arg in macros:
+                        arg = macros[arg]
+                        operand_type = operand_type_of(arg)
+
+                        if operand_type not in {'imm', 'label', 'reg'}:
+                            print(CRED + "Syntax Error: Invalid macro type used at line " + str(line_nr) + CEND)
+                            errors += f"-Syntax Error: Invalid macro type used at line {str(line_nr)}\n"
 
                     else:
                         print(CRED + "Syntax Error: Undefined macro used at line " + str(line_nr) + CEND)
                         errors += f"-Syntax Error: Undefined macro used at line {str(line_nr)}\n"
 
-            operands = valid_operands
+            operands_str = operands_str.replace(args_str, '')
+            if operands_str[0] == ' ':  # then multiword is not the first operand
+                if ' ' in operands_str[1:]:  # it has 2 non multiword operands
+                    first_2_operands = operands_str[1:].split(' ')
+                    assert len(first_2_operands) >= 2
+                    operands.append(first_2_operands[0])
+                    operands.append(args_str)
+                    operands.append(first_2_operands[1])
+                else:  # 1 op and a multiword op
+                    operands.append(operands_str[1:])
+                    operands.append(args_str)
 
-            # # # # # # # # # # # # # # # Opcodes # # # # # # # # # # # # # # #
+            else:  # multiword is the first operand
+                operands.append(args_str)
+                if ' ' in operands_str[1:]:
+                    first_2_operands = operands_str[1:].split(' ', 2)
+                    assert len(first_2_operands) >= 2
+                    operands.extend(first_2_operands)
+                else:
+                    operands.append(operands_str[1:])
 
-            if operand_count == 'ERROR':  # can be an Error, header or an URCLpp exclusive instruction
-                operand_count = new_opcode_op_count(opcode)
+        # # # # # # # # # # # # # # # Operand prefixes # # # # # # # # # # # # # # #
 
-                if operand_count == 'ERROR':  # its not an URCLpp instruction neither, so its either an error or header
-                    operand_count = check_headers(opcode)
+        else:
+            operands = operands_str.split(' ')
 
-                    if operand_count == 'ERROR':  # its not an header neither, meaning its an error
-                        print(CRED + "Syntax Error: Unknown instruction at line " + str(line_nr) + CEND)
-                        errors += f"-Syntax Error: Unknown instruction at line {str(line_nr)}\n"
+        valid_operands = []
+        # for some reason, arg is already defined here wtf
+        for arg in operands:
+            operand_type = operand_type_of(arg)
 
-                    # # # # # # # # # # # # # # # Headers # # # # # # # # # # # # # # #
+            if opcode == 'LCAL':  # LCAL has its operands sorted already
+                break
 
+            if operand_type == 'ERROR':  # its not a valid operand
+                print(CRED + "Syntax Error: Unknown operand type used at line " + str(line_nr) + CEND)
+                errors += f"-Syntax Error: Unknown operand type used at line {str(line_nr)}\n"
+
+            elif operand_type in {'imm', 'reg'}:
+                valid_operands.append(arg)
+
+            elif operand_type == 'mem':
+                if opcode in memory_instructions:
+                    valid_operands.append(arg)
+                else:
+                    print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr)
+                            + CEND)
+                    errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
+
+            elif operand_type == 'label':
+                arg = arg[1:]
+
+                if arg in labels:
+                    valid_operands.append(arg)
+                else:
+                    print(CRED + "Syntax Error: Unknown label used at line " + str(line_nr) + CEND)
+                    errors += f"-Syntax Error: Unknown label used at line {str(line_nr)}\n"
+
+            elif operand_type == 'rel':
+                if opcode in relative_accepting_instructions:
+                    valid_operands.append(arg)
+                else:
+                    print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr) +
+                            CEND)
+                    errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
+
+            elif operand_type == 'port':
+                if opcode in {'IN', 'OUT'}:
+                    if operand_type[1:].isnumeric():
+                        valid_operands.append(arg)
+
+                    elif operand_type[1:] in port_names:
+                        valid_operands.append(arg)
                     else:
-                        if operand_count != len(operands):
-                            print(CRED + "Syntax Error: Wrong number of operands at line " + str(line_nr) + CEND)
-                            errors += f"-Syntax Error: Wrong number of operands at line {str(line_nr)}\n"
-                        else:
+                        print(CRED + "Syntax Error: Unknown Port name used at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Unknown Port name used at line {str(line_nr)}\n"
+                else:
+                    print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr)
+                            + CEND)
+                    errors += f"-Syntax Error: Wrong operand type for '" + opcode + "' used at line {str(line)}\n"
 
-                            if opcode == 'BITS':
-                                if 'bits' in headers:
-                                    print(CRED + "Syntax Error: More than 1 'BITS' header at line " + str(line_nr) + CEND)
-                                    errors += f"-Syntax Error: More than 1 'BITS' header at line {str(line_nr)}\n"
-
-                                else:
-                                    headers.add('bits')
-                                    macros['@BITS'] = operands[1]
-
-                            elif opcode == 'MINREG':
-                                headers.add('minreg')
-
-                            elif opcode == 'MINHEAP':
-                                headers.add('')
-
-                            elif opcode == 'RUN':
-                                headers.add('')
-
-                            elif opcode == 'MINSTACK':
-                                headers.add('')
-
-                            elif opcode == 'IMPORT':
-                                lib_name = operands[0]
-                                if not os.path.isdir(script_dir + r'libs/' + lib_name):
-                                    print(CRED + "Syntax Error: Unknown library at line " + str(line_nr) + CEND)
-                                    errors += f"-Syntax Error: Unknown library at line {str(line_nr)}\n"
-
-                # # # # # # # # # # # # # # # URCLpp instructions # # # # # # # # # # # # # # #
-
-                else:  # its a URCLpp exclusive instruction
-
-                    if opcode == 'END':  # ignore as its not used
-                        pass
-
-                    # # # # # # # # # # # # # # # Conditionals # # # # # # # # # # # # # # #
-
-                    elif opcode == 'IF':
-
-                        pass
-
-                    elif opcode == 'ELIF':
-                        pass
-
-                    elif opcode == 'ELSE':
-                        pass
-
-                    # # # # # # # # # # # # # # # Loops # # # # # # # # # # # # # # #
-
-                    elif opcode == 'FOR':
-                        pass
-
-                    elif opcode == 'WHILE':
-                        pass
-
-                    # # # # # # # # # # # # # # # Defining Macros # # # # # # # # # # # # # # #
-
-                    if opcode == '@define':
-                        macros[operands[0]] = operands[1]
-
-                    # # # # # # # # # # # # # # # Library Call # # # # # # # # # # # # # # #
-
-                    if opcode == 'LCAL':
-                        lib = operands[0]
-                        lib = lib.replace('.', '/')
-                        rel_path = r"libraries/" + lib
-                        abs_file_path = script_dir + rel_path
-
-                        if os.path.isfile(abs_file_path):
-                            with open(abs_file_path) as f:
-                                lib_function = f.read()  # work here
-
-                        else:
-                            print(CRED + "Syntax Error: Unknown library at line " + str(line_nr) + CEND)
-                            errors += f"-Syntax Error: Unknown library at line {str(line_nr)}\n"
-
-            # # # # # # # # # # # # # # # Main URCL instruction # # # # # # # # # # # # # # #
-
-            else:  # its a normal instruction
-                if operand_count != len(operands):  # either wrong number of operands or use smart typing
-                    if operand_count - 1 == len(operands):  # smart typing it is
-                        instructions.append(opcode + ' ' + str(operands[0]) + ' ' + (' '.join(operands)))
+            elif operand_type == 'char':
+                if arg[1:].index("'") == 2:  # special chars like \n or \t or error
+                    if arg[1:3] in {'\\n', '\\t', '\\r', '\\b', '\\v', '\\0'}:
+                        valid_operands.append(arg)
                     else:
+                        print(CRED + "Syntax Error: Unknown operand type used at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Unknown operand type used at line {str(line_nr)}\n"
+
+                elif len(arg) == 3 and arg[2] == "'":  # normal char
+                    valid_operands.append(arg)
+                else:
+                    print(CRED + "Syntax Error: Unknown operand type used at line " + str(line_nr) + CEND)
+                    errors += f"-Syntax Error: Unknown operand type used at line {str(line_nr)}\n"
+
+            elif operand_type == 'cnd':
+                if opcode in conditional_instructions:
+                    valid_operands.append(arg)
+                else:
+                    print(CRED + "Syntax Error: Wrong operand type for  '" + opcode + "' used at line " + str(line_nr)
+                            + CEND)
+                    errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
+
+            elif operand_type == 'macro':
+                if opcode == '@define':
+                    if operands.index(arg) == 1:  # its declaring a macro based on another macro, and that is a no :P
+                        print(CRED + "Syntax Error: Wrong operand type for second operand in '" + opcode +
+                                "' used at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Wrong operand type for second operand in '{opcode}' used " \
+                                    f"at line {str(line_nr)}\n"
+                    else:
+                        valid_operands.append(arg)
+
+                elif arg in macros:
+                    arg = macros[arg]
+                    operand_type = operand_type_of(arg)
+                    args_str = macro_operand_valid(operand_type, opcode, line_nr)
+
+                    if args_str == '':
+                        valid_operands.append(arg)
+                    else:
+                        errors += args_str
+                        break
+
+                else:
+                    print(CRED + "Syntax Error: Undefined macro used at line " + str(line_nr) + CEND)
+                    errors += f"-Syntax Error: Undefined macro used at line {str(line_nr)}\n"
+
+        operands = valid_operands
+
+        # # # # # # # # # # # # # # # Opcodes # # # # # # # # # # # # # # #
+
+        if operand_count == 'ERROR':  # can be an Error, header or an URCLpp exclusive instruction
+            operand_count = new_opcode_op_count(opcode)
+
+            if operand_count == 'ERROR':  # its not an URCLpp instruction neither, so its either an error or header
+                operand_count = check_headers(opcode)
+
+                if operand_count == 'ERROR':  # its not an header neither, meaning its an error
+                    print(CRED + "Syntax Error: Unknown instruction at line " + str(line_nr) + CEND)
+                    errors += f"-Syntax Error: Unknown instruction at line {str(line_nr)}\n"
+
+                # # # # # # # # # # # # # # # Headers # # # # # # # # # # # # # # #
+
+                else:
+                    if operand_count != len(operands):
                         print(CRED + "Syntax Error: Wrong number of operands at line " + str(line_nr) + CEND)
                         errors += f"-Syntax Error: Wrong number of operands at line {str(line_nr)}\n"
-                else:  # normal instruction here
-                    instructions.append(opcode + ' ' + (' '.join(operands)))
+                    else:
+
+                        if opcode == 'BITS':
+                            if 'bits' in headers:
+                                print(CRED + "Syntax Error: More than 1 'BITS' header at line " + str(line_nr) + CEND)
+                                errors += f"-Syntax Error: More than 1 'BITS' header at line {str(line_nr)}\n"
+
+                            else:
+                                headers.add('bits')
+                                macros['@BITS'] = operands[1]
+
+                        elif opcode == 'MINREG':
+                            headers.add('minreg')
+
+                        elif opcode == 'MINHEAP':
+                            headers.add('')
+
+                        elif opcode == 'RUN':
+                            headers.add('')
+
+                        elif opcode == 'MINSTACK':
+                            headers.add('')
+
+                        elif opcode == 'IMPORT':
+                            lib_name = operands[0]
+                            if not os.path.isdir(script_dir + r'libs/' + lib_name):
+                                print(CRED + "Syntax Error: Unknown library at line " + str(line_nr) + CEND)
+                                errors += f"-Syntax Error: Unknown library at line {str(line_nr)}\n"
+
+            # # # # # # # # # # # # # # # URCLpp instructions # # # # # # # # # # # # # # #
+
+            else:  # its a URCLpp exclusive instruction
+
+                if opcode == 'END':  # ignore as its not used
+                    pass
+
+                # # # # # # # # # # # # # # # Conditionals # # # # # # # # # # # # # # #
+
+                elif opcode == 'IF':
+
+                    pass
+
+                elif opcode == 'ELIF':
+                    pass
+
+                elif opcode == 'ELSE':
+                    pass
+
+                # # # # # # # # # # # # # # # Loops # # # # # # # # # # # # # # #
+
+                elif opcode == 'FOR':
+                    pass
+
+                elif opcode == 'WHILE':
+                    pass
+
+                # # # # # # # # # # # # # # # Defining Macros # # # # # # # # # # # # # # #
+
+                if opcode == '@define':
+                    macros[operands[0]] = operands[1]
+
+                # # # # # # # # # # # # # # # Library Call # # # # # # # # # # # # # # #
+
+                if opcode == 'LCAL':
+                    lib = operands[0]
+                    lib = lib.replace('.', '/')
+                    rel_path = r"libraries/" + lib
+                    abs_file_path = script_dir + rel_path
+
+                    if os.path.isfile(abs_file_path):
+                        with open(abs_file_path) as f:
+                            lib_function = f.read()  # work here
+
+                    else:
+                        print(CRED + "Syntax Error: Unknown library at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Unknown library at line {str(line_nr)}\n"
+
+        # # # # # # # # # # # # # # # Main URCL instruction # # # # # # # # # # # # # # #
+
+        else:  # its a normal instruction
+            if operand_count != len(operands):  # either wrong number of operands or use smart typing
+                if operand_count - 1 == len(operands):  # smart typing it is
+                    instructions.append(opcode + ' ' + str(operands[0]) + ' ' + (' '.join(operands)))
+                else:
+                    print(CRED + "Syntax Error: Wrong number of operands at line " + str(line_nr) + CEND)
+                    errors += f"-Syntax Error: Wrong number of operands at line {str(line_nr)}\n"
+            else:  # normal instruction here
+                instructions.append(opcode + ' ' + (' '.join(operands)))
+
     end = timer()
     print(f'Operation Completed in {latency(start, end)}ms!')
     return instructions
