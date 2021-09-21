@@ -1,5 +1,9 @@
+IMPORT String
 @define @var R1
 ADD R1 R2
 INC @var
+LCAL String.print('e')
 IN R1 101
+LCAL String.char_at(R5 .label 2)
 DW "Hello World"
+DEC SP
