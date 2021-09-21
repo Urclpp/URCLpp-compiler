@@ -1,7 +1,8 @@
+from timeit import default_timer as timer
+from math import gcd
+
 import os
 script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
-
-from timeit import default_timer as timer
 
 CRED = '\033[91m'
 CGREEN = '\033[32m'
@@ -33,12 +34,13 @@ def compiler(source):
     source = source.replace(',', '')  # removes commas from the program to maximise compatibility with old programs
     lines = source.split('\n')
     instructions = []
-    errors = ''
+    errors = '```diff\n'
     print('\nCompiling...')
 
     # setup on library
     lib_code = 'JMP .endFile\n'
     headers = set()  # 'bits', 'minreg', 'minheap', 'run', 'minstack'
+    bits_head = '>= 8'
 
     imported_libraries = set()
     called_lib_functions = set()
@@ -62,11 +64,11 @@ def compiler(source):
     ends = end_recogniser(lines)
 
     for line_nr, line in enumerate(lines):
-        if line == '\n':
-            break
+        if line == '':
+            continue
+
         elif line.startswith(' '):
             line = remove_indent_spaces(line)
-            continue
 
         # # # # # # # # # # # # # # # Labels # # # # # # # # # # # # # # #
 
@@ -74,8 +76,6 @@ def compiler(source):
             instructions.append(line)
             continue
 
-        if line == '':
-            continue
         # # # # # # # # # # # # # # # Instructions # # # # # # # # # # # # # # #
 
         # big work on instructions starts here :/
@@ -177,7 +177,7 @@ def compiler(source):
                 errors += f"-Illegal Char Error: '\"' used at line {str(line_nr)}\n"
 
             else:
-                string_ = operands_str[operands_str.index('"') + 1 :operands_str.rindex('"')]
+                string_ = operands_str[operands_str.index('"') + 1:operands_str.rindex('"')]
                 split_string = list(string_)
                 final_operand = '['
                 for char in split_string:
@@ -197,10 +197,10 @@ def compiler(source):
         for arg in operands:
             operand_type = operand_type_of(arg)
 
-            if opcode == 'LCAL':  # LCAL has its operands sorted already
-                break
+            if opcode == 'LCAL' or opcode == 'IMPORT':  # LCAL has its operands sorted already
+                valid_operands.append(arg)
 
-            if operand_type == 'ERROR':  # its not a valid operand
+            elif operand_type == 'ERROR':  # its not a valid operand
                 print(CRED + "Syntax Error: Unknown operand type used at line " + str(line_nr) + CEND)
                 errors += f"-Syntax Error: Unknown operand type used at line {str(line_nr)}\n"
 
@@ -333,9 +333,6 @@ def compiler(source):
                           CEND)
                     errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
 
-                else:
-                    print('something shouldnt have ended up here. dig this up :/')
-
         # # # # # # # # # # # # # # # Opcodes # # # # # # # # # # # # # # #
 
         if operand_count == 'ERROR':  # can be an Error, header or an URCLpp exclusive instruction
@@ -369,6 +366,7 @@ def compiler(source):
                                 macros['@SMAX'] = str((2 ** (int(operands[1]) - 1)) - 1)
                                 macros['@UHALF'] = str(-(2 ** (int(operands[1]) // 2)))
                                 macros['@LHALF'] = str((2 ** (int(operands[1]) // 2)) - 1)
+                                bits_head = operands_str
 
                         elif opcode == 'MINREG':
                             if 'minreg' in headers:
@@ -381,7 +379,8 @@ def compiler(source):
 
                         elif opcode == 'MINHEAP':
                             if 'minheap' in headers:
-                                print(CRED + "Syntax Error: More than 1 'MINHEAP' header at line " + str(line_nr) + CEND)
+                                print(CRED + "Syntax Error: More than 1 'MINHEAP' header at line " + str(line_nr) +
+                                      CEND)
                                 errors += f"-Syntax Error: More than 1 'MINHEAP' header at line {str(line_nr)}\n"
 
                             else:
@@ -399,7 +398,8 @@ def compiler(source):
 
                         elif opcode == 'MINSTACK':
                             if 'minstack' in headers:
-                                print(CRED + "Syntax Error: More than 1 'MINSTACK' header at line " + str(line_nr) + CEND)
+                                print(CRED + "Syntax Error: More than 1 'MINSTACK' header at line " + str(line_nr) +
+                                      CEND)
                                 errors += f"-Syntax Error: More than 1 'MINSTACK' header at line {str(line_nr)}\n"
 
                             else:
@@ -408,7 +408,7 @@ def compiler(source):
 
                         elif opcode == 'IMPORT':
                             lib_name = operands[0]
-                            if not os.path.isdir(script_dir + r'libs/' + lib_name):
+                            if not os.path.isdir(script_dir + r'/libraries/' + lib_name):
                                 print(CRED + "Syntax Error: Unknown library at line " + str(line_nr) + CEND)
                                 errors += f"-Syntax Error: Unknown library at line {str(line_nr)}\n"
 
@@ -454,15 +454,30 @@ def compiler(source):
 
                 # # # # # # # # # # # # # # # Library Call # # # # # # # # # # # # # # #
 
-                if opcode == 'LCAL':
+                elif opcode == 'LCAL':
+                    if '(' not in operands_str:
+                        print(CRED + "Syntax Error: Faulty library call at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Faulty library call at line {str(line_nr)}\n"
+                        break
+
                     lib = operands[0]
                     lib = lib.replace('.', '/')
-                    rel_path = r"libraries/" + lib
+                    lib_name = lib.split('/', 1)[0]
+                    rel_path = r"/libraries/" + lib + '.urcl'
                     abs_file_path = script_dir + rel_path
+                    if lib_name not in imported_libraries:
+                        print(CRED + "Syntax Error: Library not imported at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Library not imported at line {str(line_nr)}\n"
 
                     if os.path.isfile(abs_file_path):
-                        with open(abs_file_path) as f:
-                            lib_function = f.read()  # work here
+                        lib_output = 0  # ignore: just so IDE doesnt trigger the var referenced before assignment error
+                        if lib not in called_lib_functions:
+                            called_lib_functions.add(lib)
+
+                            lib_output = lib_importer(abs_file_path, [bits_head, macros['@MINREG']], operands[1], lib)
+                            lib_code += lib_output[0] + '\n'  # having an empty line for readability
+
+                        instructions.append('\n' + lib_helper(operands[1], lib_output[1], lib, lib_output[2]))
 
                     else:
                         print(CRED + "Syntax Error: Unknown library at line " + str(line_nr) + CEND)
@@ -482,7 +497,19 @@ def compiler(source):
 
     end = timer()
     print(f'Operation Completed in {latency(start, end)}ms!')
-    return instructions
+
+    final_program = ''
+    for line in instructions:
+        final_program += line + '\n'
+
+    if len(called_lib_functions) != 0:
+        lib_code += '.endFile'
+        final_program += lib_code
+
+    if errors != "```diff\n":
+        return errors + final_program
+
+    return final_program
 
 
 # # # # # # # # # # # # # # # Helper Functions below # # # # # # # # # # # # # # #
@@ -518,6 +545,7 @@ def remove_comments(source):  # removes all inline comments and multiline commen
                 if source[i] == '/' and source[i + 1] == '*':
                     i += 2
                     commented = True
+                    continue
                 else:
                     if source[i] == '/' and source[i + 1] == '/':
                         i += 2
@@ -631,7 +659,7 @@ def new_opcode_op_count(opcode):
 
 def check_headers(header_name):
     header = {
-        'IMPORT': 2,
+        'IMPORT': 1,
         'BITS': 2,
         'MINREG': 1,
         'MINHEAP': 1,
@@ -649,6 +677,10 @@ def check_headers(header_name):
 def operand_type_of(operand):
     if operand.isnumeric():  # then its an IMM
         return 'imm'
+
+    elif operand == 'SP':  # sp is a valid operand
+        return 'reg'
+
     else:
         prefix = operand[0]
         op_type = {
@@ -748,9 +780,115 @@ def latency(start, end):
         return f'~{total_time}'
 
 
-def lib_helper(self):  # must push and pop the args used and save and restore the registers
-    # remove the headers and add some push and poping to save the used registers
-    return  # output
+def lib_importer(abs_file_path, headers, args, lib_name):
+    args = args[1:-1]
+    args = args.split(' ')
+    with open(abs_file_path) as f:
+        lib_function = f.read()
+        program = remove_comments(lib_function)
+        program = program.replace(',', '')
+        lines = program.split('\n')
+        errors = ''
+
+        lib_headers = [False, False, False, False]
+        headers_done = False
+        output = '.' + lib_name + '\n'
+        regs_needed = 0
+        output_regs = 0
+
+        for line_num, line in enumerate(lines):
+            part = line.split(' ', 1)
+            if line == '':
+                continue
+            try:
+                operands_str = part[1]
+            except IndexError:
+                pass
+            operand = operands_str.split(' ')
+
+            if headers_done:
+                output += line + '\n'
+            else:
+                if line.startswith('BITS'):
+                    lib_headers[0] = True
+                    if bits_compatibility(operands_str, headers[0]):
+                        print(CRED + "Compatibility Error: Incompatible library function" + CEND)
+                        errors += f"-Compatibility Error: Incompatible library function"
+                        return errors
+
+                elif line.startswith('OPS'):
+                    lib_headers[1] = True
+                    if int(operand[0]) < len(args):
+                        print(CRED + "Type Error: Too many arguments given in library call at line " +
+                              str(line_num) + CEND)
+                        errors += f"-Type Error: Too many arguments given in library call at line " \
+                                  f"{str(line_num)}\n"
+                        return errors
+
+                    elif int(operand[0]) > len(args):
+                        print(CRED + "Type Error: Missing argument in library call at line " + str(line_num) +
+                              CEND)
+                        errors += f"-Type Error: Missing argument in library call at line {str(line_num)}\n"
+                        return errors
+
+                elif line.startswith('REG'):
+                    lib_headers[2] = True
+                    regs_needed = int(operand[0])
+                    if int(headers[1]) < int(operand[0]):
+                        print(CRED + "Type Error: Not enough registers available for library function" + CEND)
+                        errors += f"-Type Error: Not enough registers available for library function"
+                        return errors
+
+                elif line.startswith('OUTS'):
+                    lib_headers[3] = True
+                    output_regs = operand[0]
+
+                headers_done = lib_headers[0] and lib_headers[1] and lib_headers[2]
+
+    return [output, regs_needed, output_regs]
+
+
+def lib_helper(args, regs, lib_name, output_regs_num):
+    args = args.split(' ')
+    args_passed = ''
+    saved_regs = ''
+    restored_regs = ''
+    moved_regs = ''
+    destination_regs = set()
+
+    calling_instruction = 'CAL .' + lib_name + '\n'
+
+    for num in range(int(output_regs_num) + 1):
+        print(args)
+        if args[num][0] == 'R' or args[num][0] == '$':
+            moved_regs += f'MOV {args[num]} R{num + 1}\n'
+            destination_regs.add(num)
+
+    for reg in range(1, regs + 1):
+        if reg not in destination_regs:
+            saved_regs += f'PSH R{reg}\n'
+
+    args.reverse()
+    for num in range(1, int(output_regs_num) + 1):
+        args.pop()
+
+    for arg in args:
+        args_passed += f'PSH {arg}\n'
+
+    for num in range(regs, 0, -1):
+        restored_regs += f'POP R{num}\n'
+
+    return saved_regs + args_passed + calling_instruction + moved_regs + restored_regs
+
+
+def bits_compatibility(lib_header, header):
+    header = header.split(' ', 1)
+
+    for num in range(1, 65):
+        if eval(header[1] + ' ' + header[0] + ' ' + str(num) + lib_header):
+            return False
+
+    return True
 
 
 print(compiler(get_input()))
