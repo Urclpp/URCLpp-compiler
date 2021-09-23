@@ -33,12 +33,15 @@ def compiler(source):
     source = remove_comments(source)  # removes comments inline or multi line
     source = source.replace(',', '')  # removes commas from the program to maximise compatibility with old programs
     lines = source.split('\n')
+    lines = remove_indent_spaces(lines)
+    lines = label_generator(lines)
+
     instructions = []
     errors = '```diff\n'
     print('\nCompiling...')
 
     # setup on library
-    lib_code = 'JMP .endFile\n'
+    lib_code = '\nJMP .reserved_endFile\n\n'
     headers = set()  # 'bits', 'minreg', 'minheap', 'run', 'minstack'
     bits_head = '>= 8'
 
@@ -61,14 +64,9 @@ def compiler(source):
 
     labels, errors = label_recogniser(lines)
 
-    ends = end_recogniser(lines)
-
     for line_nr, line in enumerate(lines):
         if line == '':
             continue
-
-        elif line.startswith(' '):
-            line = remove_indent_spaces(line)
 
         # # # # # # # # # # # # # # # Labels # # # # # # # # # # # # # # #
 
@@ -81,7 +79,10 @@ def compiler(source):
         # big work on instructions starts here :/
         parts = line.split(' ', 1)  # dividing instruction into opcode and operands
         opcode = parts[0]
-        operands_str = parts[1]
+        try:
+            operands_str = parts[1]
+        except IndexError:
+            operands_str = ''
         operand_count = opcode_op_count(opcode)  # return num of operands of instruction, or YEET if URCLpp/Header/Error
         operands = []
 
@@ -195,7 +196,10 @@ def compiler(source):
         valid_operands = []
         # for some reason, arg is already defined here wtf
         for arg in operands:
-            operand_type = operand_type_of(arg)
+            try:
+                operand_type = operand_type_of(arg)
+            except IndexError:
+                continue
 
             if opcode == 'LCAL' or opcode == 'IMPORT':  # LCAL has its operands sorted already
                 valid_operands.append(arg)
@@ -216,8 +220,7 @@ def compiler(source):
                     errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
 
             elif operand_type == 'label':
-                arg = arg[1:]
-
+                # arg = arg[1:]
                 if arg in labels:
                     valid_operands.append(arg)
                 else:
@@ -299,7 +302,10 @@ def compiler(source):
         # # # # # # # # # # # # # # # First Operand type checks # # # # # # # # # # # # # # #
 
         if operand_count != 'ERROR':  # then its a main URCL instruction
-            destination_operand_type = operand_type_of(operands[0])
+            try:
+                destination_operand_type = operand_type_of(operands[0])
+            except IndexError:
+                continue
 
             if destination_operand_type not in {'reg', 'port', 'rel', 'label', 'mem'}:  # operand 1 must be address/reg
                 if destination_operand_type == 'imm' and opcode in memory_instructions:
@@ -430,13 +436,50 @@ def compiler(source):
                 # # # # # # # # # # # # # # # Conditionals # # # # # # # # # # # # # # #
 
                 elif opcode == 'IF':
-
-                    pass
+                    try:
+                        branch = condition_translator(operands[1])
+                    except IndexError:
+                        branch = 'BRZ'
+                    label = associate_instructions(lines[line_nr + 1:], opcode)
+                    if label == 'Missing END':
+                        label = '.reserved_endFile'
+                    elif label == 'ERROR':
+                        print(CRED + "Syntax Error: Too many END used (incorrect scope) at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Too many END used (incorrect scope) at line {str(line_nr)}\n"
+                        return errors
+                    labels.add(label)
+                    try:
+                        instructions.append(f'{branch} {label} {operands[0]} {operands[2]}')
+                    except IndexError:
+                        instructions.append(f'{branch} {label} {operands[0]}')
+                    index = lines.index(label)
+                    label = associate_end(lines[line_nr + 1:])
+                    labels.add(label)
+                    lines.insert(index, f'JMP {label}')
 
                 elif opcode == 'ELIF':
-                    pass
+                    try:
+                        branch = condition_translator(operands[1])
+                    except IndexError:
+                        branch = 'BRZ'
+                    label = associate_instructions(lines[line_nr + 1:], opcode)
+                    if label == 'Missing END':
+                        label = '.reserved_endFile'
+                    elif label == 'ERROR':
+                        print(CRED + "Syntax Error: Too many END used (incorrect scope) at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Too many END used (incorrect scope) at line {str(line_nr)}\n"
+                        return errors
+                    labels.add(label)
+                    try:
+                        instructions.append(f'{branch} {label} {operands[0]} {operands[2]}')
+                    except IndexError:
+                        instructions.append(f'{branch} {label} {operands[0]}')
+                    index = lines.index(label)
+                    label = associate_end(lines[line_nr + 1:])
+                    labels.add(label)
+                    lines.insert(index, f'JMP {label}')
 
-                elif opcode == 'ELSE':
+                elif opcode == 'ELSE':  # ignore as its not used
                     pass
 
                 # # # # # # # # # # # # # # # Loops # # # # # # # # # # # # # # #
@@ -445,11 +488,38 @@ def compiler(source):
                     pass
 
                 elif opcode == 'WHILE':
+                    try:
+                        branch = condition_translator(operands[1])
+                    except IndexError:
+                        branch = 'BRZ'
+                    label = associate_instructions(lines[line_nr + 1:], opcode)
+                    if label == 'Missing END':
+                        print(CRED + "Syntax Error: Missing END (incorrect scope) at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Missing END used (incorrect scope) at line {str(line_nr)}\n"
+                        return errors
+                    elif label == 'ERROR':
+                        print(CRED + "Syntax Error: Too many END used (incorrect scope) at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Too many END used (incorrect scope) at line {str(line_nr)}\n"
+                        return errors
+                    labels.add(label)
+                    try:
+                        instructions.append(f'{branch} {label} {operands[0]} {operands[2]}')
+                    except IndexError:
+                        instructions.append(f'{branch} {label} {operands[0]}')
+                    index = lines.index(label)
+                    label = lines[line_nr - 1]
+                    lines.insert(index, f'JMP {label}')
+
+                elif opcode == 'SWITCH':
+                    
+                    pass
+
+                elif opcode == 'CASE':  # ignore as its not used
                     pass
 
                 # # # # # # # # # # # # # # # Defining Macros # # # # # # # # # # # # # # #
 
-                if opcode == '@define':
+                elif opcode == '@define':
                     macros[operands[0]] = operands[1]
 
                 # # # # # # # # # # # # # # # Library Call # # # # # # # # # # # # # # #
@@ -495,16 +565,17 @@ def compiler(source):
             else:  # normal instruction here
                 instructions.append(opcode + ' ' + (' '.join(operands)))
 
-    end = timer()
-    print(f'Operation Completed in {latency(start, end)}ms!')
-
     final_program = ''
     for line in instructions:
         final_program += line + '\n'
 
     if len(called_lib_functions) != 0:
-        lib_code += '.endFile'
         final_program += lib_code
+
+    final_program += '.reserved_endFile'
+
+    end = timer()
+    print(f'Operation Completed in {latency(start, end)}ms!')
 
     if errors != "```diff\n":
         return errors + final_program
@@ -520,12 +591,17 @@ def get_input():
         return f.read()
 
 
-def remove_indent_spaces(line):
-    i = 0
-    while line[i] == ' ':
-        if i < len(line):
-            i += 1
-    return line[i:]
+def remove_indent_spaces(lines):
+    output = []
+    for line in lines:
+        i = 0
+        if line == '':
+            continue
+        while line[i] == ' ':
+            if i < len(line):
+                i += 1
+        output.append(line[i:])
+    return output
 
 
 def remove_comments(source):  # removes all inline comments and multiline comments from the program
@@ -729,12 +805,38 @@ def label_recogniser(lines):
     return [labels, errors]
 
 
-def end_recogniser(lines):
-    ends = []
-    for line_nr, line in enumerate(lines):
-        if line == 'END':
-            ends.append(line_nr)
-    return ends
+def label_generator(lines):
+    end_counter = 0
+    elif_counter = 0
+    else_counter = 0
+    while_counter = 0
+    for_counter = 0
+    labels = []
+    for line in lines:
+        opcode = line.split(' ', 1)[0]
+        if opcode == 'END':
+            end_counter += 1
+            labels.append(f'.reserved_end{end_counter}')
+
+        elif opcode == 'ELIF':
+            elif_counter += 1
+            labels.append(f'.reserved_elif{elif_counter}')
+
+        elif opcode == 'ELSE':
+            else_counter += 1
+            labels.append(f'.reserved_else{else_counter}')
+
+        elif opcode == 'WHILE':
+            while_counter += 1
+            labels.append(f'.reserved_while{while_counter}')
+
+        elif opcode == 'FOR':
+            for_counter += 1
+            labels.append(f'.reserved_while{for_counter}')
+
+        labels.append(line)
+
+    return labels
 
 
 def macro_operand_valid(op_type, opcode, line_nr):
@@ -792,7 +894,7 @@ def lib_importer(abs_file_path, headers, args, lib_name):
 
         lib_headers = [False, False, False, False]
         headers_done = False
-        output = '.' + lib_name + '\n'
+        output = '.reserved_' + lib_name + '\n'
         regs_needed = 0
         output_regs = 0
 
@@ -856,16 +958,21 @@ def lib_helper(args, regs, lib_name, output_regs_num):
     moved_regs = ''
     destination_regs = set()
 
-    calling_instruction = 'CAL .' + lib_name + '\n'
+    calling_instruction = 'CAL .reserved_' + lib_name + '\n'
 
-    for num in range(int(output_regs_num) + 1):
-        print(args)
+    for num in range(int(output_regs_num)):
         if args[num][0] == 'R' or args[num][0] == '$':
-            moved_regs += f'MOV {args[num]} R{num + 1}\n'
-            destination_regs.add(num)
+            try:
+                destination_regs.add(args[num][1:])
+                if int(args[num][1:]) == num + 1:
+                    continue
+                moved_regs += f'MOV {args[num]} R{num + 1}\n'
+
+            except IndexError:
+                pass
 
     for reg in range(1, regs + 1):
-        if reg not in destination_regs:
+        if str(reg) not in destination_regs:
             saved_regs += f'PSH R{reg}\n'
 
     args.reverse()
@@ -876,7 +983,8 @@ def lib_helper(args, regs, lib_name, output_regs_num):
         args_passed += f'PSH {arg}\n'
 
     for num in range(regs, 0, -1):
-        restored_regs += f'POP R{num}\n'
+        if str(num) not in destination_regs:
+            restored_regs += f'POP R{num}\n'
 
     return saved_regs + args_passed + calling_instruction + moved_regs + restored_regs
 
@@ -889,6 +997,67 @@ def bits_compatibility(lib_header, header):
             return False
 
     return True
+
+
+def associate_instructions(lines, instruction):
+    scope = 0
+    for line_num, line in enumerate(lines):
+        line = line.split(' ', 1)
+        opcode = line[0]
+
+        if opcode in {'IF', 'FOR', 'WHILE', 'SWITCH'}:
+            scope += 1
+
+        elif scope == 0:
+            if instruction == 'IF' or instruction == 'ELIF':
+
+                if opcode == 'ELIF' or opcode == 'ELSE' or opcode == 'END':
+                    return lines[line_num - 1]  # 'JMP reserved_end' + str() + '\n' +
+
+            elif opcode == 'END':
+                return lines[line_num - 1]
+
+        elif opcode == 'END':
+            scope -= 1
+
+        if scope < 0:
+            return 'ERROR'
+
+    return 'Missing END'
+
+
+def associate_end(lines):
+    scope = 0
+    for line_num, line in enumerate(lines):
+        line = line.split(' ', 1)
+        opcode = line[0]
+
+        if opcode in {'IF', 'FOR', 'WHILE', 'SWITCH'}:
+            scope += 1
+
+        elif scope == 0:
+            if opcode == 'END':
+                return lines[line_num - 1]
+
+        elif opcode == 'END':
+            scope -= 1
+
+        if scope < 0:
+            return 'ERROR'
+
+    return 'Missing END'
+
+
+def condition_translator(condition):
+    conditions = {  # WARNING: keep in mind that these are the opposite of what they should be
+        '==': 'BNE',
+        '!=': 'BRE',
+        '<': 'BGE',
+        '<=': 'BRG',
+        '>': 'BLE',
+        '>=': 'BRL',
+    }
+    return conditions[condition]
 
 
 print(compiler(get_input()))
