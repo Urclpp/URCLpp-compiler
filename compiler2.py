@@ -1,5 +1,4 @@
 from timeit import default_timer as timer
-from math import gcd
 
 import os
 script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
@@ -10,6 +9,7 @@ CEND = '\033[0m'
 allowed_chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_'
 memory_instructions = {'LOD', 'LLOD', 'STR', 'LSTR', 'CPY'}
 conditional_instructions = {'IF', 'ELIF', 'WHILE'}
+scope_instructions = {'IF', 'FOR', 'WHILE', 'SWITCH'}
 
 multiword_instructions = {'LOD', 'LLOD', 'STR', 'LSTR', 'JMP', 'CPY', 'BGE', 'BRE', 'BNE', 'BRL', 'BRG', 'BLE', 'BZR',
                           'BNZ', 'BRN', 'BRP', 'BEV', 'BOD', 'CAL', 'BRC', 'BNC', 'DW'}
@@ -64,14 +64,18 @@ def compiler(source):
 
     labels, errors = label_recogniser(lines)
 
-    for line_nr, line in enumerate(lines):
+    line_nr = 0
+    while line_nr < len(lines):
+        line = lines[line_nr]
         if line == '':
+            line_nr += 1
             continue
 
         # # # # # # # # # # # # # # # Labels # # # # # # # # # # # # # # #
 
         if line.startswith('.'):
             instructions.append(line)
+            line_nr += 1
             continue
 
         # # # # # # # # # # # # # # # Instructions # # # # # # # # # # # # # # #
@@ -129,41 +133,42 @@ def compiler(source):
                     errors += f"-Illegal Char Error: '[' or ']' used at line {str(line_nr)}\n"
 
             args_str = operands_str[(operands_str.index('[') + 1):operands_str.index(']')]
-
-            for arg in args_str.split(' '):
+            other_operands = operands_str.replace(f'[{args_str}]', '')
+            checked_args = []
+            for arg in args_str.split(' '):  # replace macros that are inside the multiword
                 if arg[0] == '@':
                     if arg in macros:
                         arg = macros[arg]
                         operand_type = operand_type_of(arg)
 
-                        if operand_type not in {'imm', 'label', 'reg'}:
+                        if operand_type not in {'imm', 'label', 'reg', 'char'}:
                             print(CRED + "Syntax Error: Invalid macro type used at line " + str(line_nr) + CEND)
                             errors += f"-Syntax Error: Invalid macro type used at line {str(line_nr)}\n"
+
+                        else:
+                            arg = macros[arg]
 
                     else:
                         print(CRED + "Syntax Error: Undefined macro used at line " + str(line_nr) + CEND)
                         errors += f"-Syntax Error: Undefined macro used at line {str(line_nr)}\n"
 
-            operands_str = operands_str.replace(args_str, '')
-            if operands_str[0] == ' ':  # then multiword is not the first operand
-                if ' ' in operands_str[1:]:  # it has 2 non multiword operands
-                    first_2_operands = operands_str[1:].split(' ')
-                    assert len(first_2_operands) >= 2
-                    operands.append(first_2_operands[0])
-                    operands.append(args_str)
-                    operands.append(first_2_operands[1])
-                else:  # 1 op and a multiword op
-                    operands.append(operands_str[1:])
-                    operands.append(args_str)
+                checked_args.append(arg)
 
-            else:  # multiword is the first operand
-                operands.append(args_str)
-                if ' ' in operands_str[1:]:
-                    first_2_operands = operands_str[1:].split(' ', 2)
-                    assert len(first_2_operands) >= 2
-                    operands.extend(first_2_operands)
-                else:
-                    operands.append(operands_str[1:])
+            args_str = f'[{" ".join(checked_args)}]'
+
+            if opcode == 'DW':
+                instructions.append(f'DW {args_str}')
+                line_nr += 1
+                continue
+
+            else:
+                operands = other_operands[1:].split(' ')
+
+                if other_operands[0] == ' ':  # multiword is the first operand
+                    operands.insert(0, args_str)
+
+                else:  # multiword is the second operand
+                    operands.insert(1, args_str)
 
         # # # # # # # # # # # # # # # String as a multiword operand on DW # # # # # # # # # # # # # # #
 
@@ -180,12 +185,14 @@ def compiler(source):
             else:
                 string_ = operands_str[operands_str.index('"') + 1:operands_str.rindex('"')]
                 split_string = list(string_)
-                final_operand = '['
+                length = len(string_)
+                final_operand = f'[{str(length)} '
                 for char in split_string:
                     final_operand += f"'{char}' "
 
                 final_operand = final_operand[:-1] + ']'
                 instructions.append('DW ' + final_operand)
+                line_nr += 1
                 continue
 
         # # # # # # # # # # # # # # # Operand prefixes # # # # # # # # # # # # # # #
@@ -199,6 +206,7 @@ def compiler(source):
             try:
                 operand_type = operand_type_of(arg)
             except IndexError:
+                line_nr += 1
                 continue
 
             if opcode == 'LCAL' or opcode == 'IMPORT':  # LCAL has its operands sorted already
@@ -220,12 +228,14 @@ def compiler(source):
                     errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
 
             elif operand_type == 'label':
-                # arg = arg[1:]
-                if arg in labels:
-                    valid_operands.append(arg)
+                if ' ' in arg:
+                    pass
                 else:
-                    print(CRED + "Syntax Error: Unknown label used at line " + str(line_nr) + CEND)
-                    errors += f"-Syntax Error: Unknown label used at line {str(line_nr)}\n"
+                    if arg in labels:
+                        valid_operands.append(arg)
+                    else:
+                        print(CRED + "Syntax Error: Unknown label used at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Unknown label used at line {str(line_nr)}\n"
 
             elif operand_type == 'rel':
                 if opcode in relative_accepting_instructions:
@@ -305,6 +315,7 @@ def compiler(source):
             try:
                 destination_operand_type = operand_type_of(operands[0])
             except IndexError:
+                line_nr += 1
                 continue
 
             if destination_operand_type not in {'reg', 'port', 'rel', 'label', 'mem'}:  # operand 1 must be address/reg
@@ -312,6 +323,12 @@ def compiler(source):
                     print(CRED + "Warning: Immediate values should NOT be used as addresses in memory instructions at "
                                  "line " + str(line_nr) + CEND)
                     errors += f"-Warning: Immediate values should NOT be used as addresses in memory instructions at " \
+                              f"line {str(line_nr)}\n"
+
+                elif destination_operand_type == 'imm' and opcode in branch_instructions:
+                    print(CRED + "Warning: Immediate values should NOT be used as addresses in Branch instructions at "
+                                 "line " + str(line_nr) + CEND)
+                    errors += f"-Warning: Immediate values should NOT be used as addresses in Branch instructions at " \
                               f"line {str(line_nr)}\n"
 
                 elif destination_operand_type == 'imm' and opcode == 'PSH':  # this is the only exception to the rule
@@ -329,7 +346,7 @@ def compiler(source):
                           CEND)
                     errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
 
-                elif opcode in branch_instructions and destination_operand_type not in {'rel', 'reg', 'label', 'imm'}:
+                elif opcode in branch_instructions and destination_operand_type not in {'rel', 'reg', 'label'}:
                     print(CRED + "Syntax Error: Wrong operand type for '" + opcode + "' used at line " + str(line_nr) +
                           CEND)
                     errors += f"-Syntax Error: Wrong operand type for '{opcode}' used at line {str(line_nr)}\n"
@@ -430,12 +447,9 @@ def compiler(source):
 
             else:  # its a URCLpp exclusive instruction
 
-                if opcode == 'END':  # ignore as its not used
-                    pass
-
                 # # # # # # # # # # # # # # # Conditionals # # # # # # # # # # # # # # #
 
-                elif opcode == 'IF':
+                if opcode == 'IF':
                     try:
                         branch = condition_translator(operands[1])
                     except IndexError:
@@ -479,19 +493,43 @@ def compiler(source):
                     labels.add(label)
                     lines.insert(index, f'JMP {label}')
 
-                elif opcode == 'ELSE':  # ignore as its not used
-                    pass
-
                 # # # # # # # # # # # # # # # Loops # # # # # # # # # # # # # # #
 
                 elif opcode == 'FOR':
-                    pass
+                    try:
+                        value = operands[2]
+                    except IndexError:
+                        value = '1'
+
+                    label = associate_instructions(lines[line_nr + 1:], opcode)
+                    if label == 'Missing END':
+                        print(CRED + "Syntax Error: Missing END (incorrect scope) at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Missing END used (incorrect scope) at line {str(line_nr)}\n"
+                        return errors
+                    elif label == 'ERROR':
+                        print(CRED + "Syntax Error: Too many END used (incorrect scope) at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Too many END used (incorrect scope) at line {str(line_nr)}\n"
+                        return errors
+                    labels.add(label)
+                    instructions.append(f'BRE {label} {operands[0]} {operands[1]}')
+                    index = lines.index(label)
+                    label = lines[line_nr - 1]
+                    lines.insert(index, f'JMP {label}')
+                    if value == '0':  # for loop cant have a 0, right?
+                        break
+                    elif value == '1':
+                        lines.insert(index, f'INC {operands[0]} {operands[0]}')
+                    elif value == '-1':
+                        lines.insert(index, f'DEC {operands[0]} {operands[0]}')
+                    else:
+                        lines.insert(index, f'ADD {operands[0]} {operands[0]} {value}')
 
                 elif opcode == 'WHILE':
                     try:
                         branch = condition_translator(operands[1])
                     except IndexError:
                         branch = 'BRZ'
+
                     label = associate_instructions(lines[line_nr + 1:], opcode)
                     if label == 'Missing END':
                         print(CRED + "Syntax Error: Missing END (incorrect scope) at line " + str(line_nr) + CEND)
@@ -511,11 +549,28 @@ def compiler(source):
                     lines.insert(index, f'JMP {label}')
 
                 elif opcode == 'SWITCH':
-                    
-                    pass
 
-                elif opcode == 'CASE':  # ignore as its not used
-                    pass
+                    if operands[0][0] != 'R' and operands[0][0] != '$':
+                        print(CRED + "Syntax Error: Wrong operand type at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Wrong operand type at line {str(line_nr)}\n"
+
+                    label = associate_instructions(lines[line_nr + 1:], opcode)
+                    if label == 'Missing END':
+                        print(CRED + "Syntax Error: Missing END (incorrect scope) at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Missing END used (incorrect scope) at line {str(line_nr)}\n"
+                        return errors
+                    elif label == 'ERROR':
+                        print(CRED + "Syntax Error: Too many END used (incorrect scope) at line " + str(line_nr) + CEND)
+                        errors += f"-Syntax Error: Too many END used (incorrect scope) at line {str(line_nr)}\n"
+                        return errors
+                    labels.add(label)
+                    index = lines.index(label)
+                    n_errors, n_labels, code = build_switch(lines[line_nr + 1:], lines[line_nr - 1], label, operands[0])
+                    errors += n_errors
+                    labels |= n_labels
+                    lines = lines[:line_nr - 1] + code + lines[index + 2:]
+                    line_nr -= 2
+                    instructions.pop()
 
                 # # # # # # # # # # # # # # # Defining Macros # # # # # # # # # # # # # # #
 
@@ -564,6 +619,8 @@ def compiler(source):
                     errors += f"-Syntax Error: Wrong number of operands at line {str(line_nr)}\n"
             else:  # normal instruction here
                 instructions.append(opcode + ' ' + (' '.join(operands)))
+
+        line_nr += 1
 
     final_program = ''
     for line in instructions:
@@ -674,8 +731,8 @@ def opcode_op_count(opcode):  # checks if the opcode is correct and returns the 
         'BRP': 2,
         'BEV': 2,
         'BOD': 2,
-        'PSH': 2,
-        'POP': 2,
+        'PSH': 1,
+        'POP': 1,
         'CAL': 2,
         'RET': 0,
         'HLT': 0,
@@ -719,7 +776,7 @@ def new_opcode_op_count(opcode):
         'IF': 3,
         'ELIF': 3,
         'ELSE': 3,
-        'FOR': 2,
+        'FOR': 3,
         'WHILE': 3,
         'SWITCH': 1,
         'CASE': 1,
@@ -811,6 +868,7 @@ def label_generator(lines):
     else_counter = 0
     while_counter = 0
     for_counter = 0
+    switch_counter = 0
     labels = []
     for line in lines:
         opcode = line.split(' ', 1)[0]
@@ -832,7 +890,11 @@ def label_generator(lines):
 
         elif opcode == 'FOR':
             for_counter += 1
-            labels.append(f'.reserved_while{for_counter}')
+            labels.append(f'.reserved_for{for_counter}')
+
+        elif opcode == 'SWITCH':
+            switch_counter += 1
+            labels.append(f'.reserved_switch{switch_counter}')
 
         labels.append(line)
 
@@ -1005,14 +1067,14 @@ def associate_instructions(lines, instruction):
         line = line.split(' ', 1)
         opcode = line[0]
 
-        if opcode in {'IF', 'FOR', 'WHILE', 'SWITCH'}:
+        if opcode in scope_instructions:
             scope += 1
 
         elif scope == 0:
             if instruction == 'IF' or instruction == 'ELIF':
 
                 if opcode == 'ELIF' or opcode == 'ELSE' or opcode == 'END':
-                    return lines[line_num - 1]  # 'JMP reserved_end' + str() + '\n' +
+                    return lines[line_num - 1]
 
             elif opcode == 'END':
                 return lines[line_num - 1]
@@ -1032,7 +1094,7 @@ def associate_end(lines):
         line = line.split(' ', 1)
         opcode = line[0]
 
-        if opcode in {'IF', 'FOR', 'WHILE', 'SWITCH'}:
+        if opcode in scope_instructions:
             scope += 1
 
         elif scope == 0:
@@ -1058,6 +1120,102 @@ def condition_translator(condition):
         '>=': 'BRL',
     }
     return conditions[condition]
+
+
+def build_switch(lines, switch_label, end, register):
+    errors = ''
+    scope = 0
+    cases = set()
+    labels = set()
+    case_num = 0
+    switch_number = switch_label[16:]
+    default_done = False
+    output = []
+    switch = {}
+
+    for line_nr, line in enumerate(lines):
+        opcode = line.split(' ', 1)[0]
+        try:
+            operands_str = line.split(' ', 1)[1]
+        except IndexError:
+            continue
+
+        if opcode in scope_instructions:
+            scope += 1
+            continue
+        elif opcode == 'END':
+            scope -= 1
+            continue
+        elif scope != 0:
+            continue
+
+        if opcode == 'CASE':
+            operands = operands_str.split(' ')
+            case_num += 1
+            case_label = f'.reserved_case{switch_number}_{case_num}'
+            labels.add(case_label)
+
+            for operand in operands:
+                if operand.isnumeric:
+                    cases.add(int(operand))
+                else:
+                    print(CRED + "Syntax Error: Wrong operand type for CASE at line " + str(line_nr) + CEND)
+                    errors += f"-Syntax Error: Wrong operand type for CASE at line {str(line_nr)}\n"
+                switch[int(operand)] = case_label
+
+            if len(output) > 0:
+                output.append(f'JMP {end}')
+            output.append(case_label)
+
+        elif opcode == 'DEFAULT':
+            default_done = True
+            if len(output) > 0:
+                output.append(f'JMP {end}')
+            output.append(f'.reserved_default{switch_number}')
+            labels.add(f'.reserved_default{switch_number}')
+
+        else:
+            output.append(line)
+
+    output.append(end)
+    biggest_case = None
+    smallest_case = None
+
+    for case in cases:
+        try:
+            if case > biggest_case:
+                biggest_case = case
+
+            elif case < smallest_case:
+                smallest_case = case
+        except TypeError:
+            smallest_case = case
+            biggest_case = case
+
+    dw = []
+    for number in range(biggest_case + 1):
+        try:
+            address = switch[number]
+        except KeyError:
+            if default_done:
+                address = f'.reserved_default{switch_number}'
+            else:
+                address = end
+        dw.append(address)
+
+    dw = str(dw).replace(',', '')
+    dw = dw.replace("'", '')
+    output.insert(0, f'DW {dw}')
+
+    output.insert(0, switch_label)
+    output.insert(0, f'JMP {register}')
+    output.insert(0, f'LLOD {register} {switch_label} {register}')
+
+    if smallest_case != 0:
+        output.insert(0, f'SUB {register} {register} {smallest_case}')
+    output.insert(0, f'BRG {end} {register} {biggest_case}')
+
+    return errors, labels, output
 
 
 print(compiler(get_input()))
