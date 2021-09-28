@@ -66,15 +66,20 @@ async def display_embed(ctx):
 
 @client.command(aliases=['compile'])
 async def comp(ctx, *, msg=''):
-    if msg.startswith('```') and msg.endswith('```'):
-        await ctx.send('Compiling...')
-        start = msg.find('```') + 3
-        end = msg.find('```', start)
-        msg = msg[start:end]
-        output = compiler.compiler(msg)
-        await ctx.send(f'output: {output}')
+    beginning = timer()
+    await ctx.send('Compiling...')
+    start = msg.find('```') + 3
+    end = msg.find('```', start)
+    msg = msg[start:end]
+    if msg == '':
+        await ctx.send("if you want me to compile, give me just code! >:(")
     else:
-        await ctx.send("if you want me to compile, give me code! >:(")
+        output = compiler2.compiler(msg)
+        end = timer()
+        total_time = end - beginning
+        total_time = round(total_time * 1000)
+        await ctx.send(f'Operation Completed in {total_time}ms!')
+        await ctx.send(f'Output: \n{output}')
 
 
 token = 'token_name'
