@@ -1,7 +1,44 @@
 from timeit import default_timer as timer
-
+from sys import argv
+from os.path import isfile
 import os
 script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
+
+usage = """usage: python compiler2 <source_file> <destination_file>"""
+
+def main():
+    source = argv[1] if len(argv) >= 2 else 'debug_test.urcl'  
+    dest = argv[2] if len(argv) >= 3 else None;
+    
+    output = None
+    # get sample program to debug
+    print(f"reading from: {source}")
+    if isfile(source):
+        with open(source, mode='r') as sf:
+            output = compiler(sf.read().replace("\r", " "))
+    else:
+        print(f"couldn't find source file: {source}")
+        print(usage)
+        return
+    
+    if output == None:
+        print("Failed to compile program")
+        print(usage)
+        return
+        
+    
+    if (dest):
+        if isfile(dest):
+            with open(dest, mode='w') as df:
+                df.write(output.replace("```", ""))
+                print(f"Saved program to {dest}")
+        else:
+            print(f"couldn't find destination file: {dest}")
+    else:
+        print(output)
+    
+    print(usage)
+    
 
 CRED = '\033[91m'
 CGREEN = '\033[32m'
@@ -644,10 +681,6 @@ def compiler(source):
 
 # # # # # # # # # # # # # # # Helper Functions below # # # # # # # # # # # # # # #
 
-def get_input():
-    # get sample program to debug in text, open in read text mode
-    with open('debug_test.urcl', mode='r') as f:
-        return f.read()
 
 
 def remove_indent_spaces(lines):
@@ -1220,3 +1253,6 @@ def build_switch(lines, switch_label, end, register):
     output.insert(0, f'BRG {end} {register} {biggest_case}')
 
     return errors, labels, output
+
+if __name__ == "__main__":
+    main()
