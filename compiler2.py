@@ -62,7 +62,8 @@ def compiler(source):
         '@LHALF': '15',
     }
 
-    labels, errors = label_recogniser(lines)
+    labels, label_errors = label_recogniser(lines)
+    errors += label_errors
 
     line_nr = 0
     while line_nr < len(lines):
@@ -595,6 +596,7 @@ def compiler(source):
                         errors += f"-Syntax Error: Library not imported at line {str(line_nr)}\n"
 
                     if os.path.isfile(abs_file_path):
+                        lib = lib.replace('/', '_')
                         lib_output = 0  # ignore: just so IDE doesnt trigger the var referenced before assignment error
                         if lib not in called_lib_functions:
                             called_lib_functions.add(lib)
@@ -635,9 +637,9 @@ def compiler(source):
     print(f'Operation Completed in {latency(start, end)}ms!')
 
     if errors != "```diff\n":
-        return errors + final_program
+        return f'{errors[:-1]}\n```\n```{final_program}```'
 
-    return final_program
+    return f'```{final_program}```'
 
 
 # # # # # # # # # # # # # # # Helper Functions below # # # # # # # # # # # # # # #
@@ -1015,6 +1017,7 @@ def lib_importer(abs_file_path, headers, args, lib_name):
 def lib_helper(args, regs, lib_name, output_regs_num):
     args = args.split(' ')
     args_passed = ''
+    args_removed = ''
     saved_regs = ''
     restored_regs = ''
     moved_regs = ''
@@ -1043,12 +1046,13 @@ def lib_helper(args, regs, lib_name, output_regs_num):
 
     for arg in args:
         args_passed += f'PSH {arg}\n'
+        args_removed += f'POP R0\n'
 
     for num in range(regs, 0, -1):
         if str(num) not in destination_regs:
             restored_regs += f'POP R{num}\n'
 
-    return saved_regs + args_passed + calling_instruction + moved_regs + restored_regs
+    return saved_regs + args_passed + calling_instruction + moved_regs + args_removed + restored_regs
 
 
 def bits_compatibility(lib_header, header):
@@ -1216,6 +1220,3 @@ def build_switch(lines, switch_label, end, register):
     output.insert(0, f'BRG {end} {register} {biggest_case}')
 
     return errors, labels, output
-
-
-print(compiler(get_input()))
