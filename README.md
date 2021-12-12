@@ -5,3 +5,20 @@ Programming in low level and teaching newbs how assembly works was never this ea
 Have a good day :)
 
 ~Kuggo
+
+## Prerequisites
+- [Python 3](https://www.python.org/)
+
+## Run
+Run the compiler by entering the following command in the terminal
+```cmd
+python compiler2 <sourcefile> [<destinationfile>]
+```
+
+## Install
+### Windows
+Add the bin folder to your [Path environment variable](https://duckduckgo.com/?q=windows+add+to+path).
+Now (re)start the terminal and you can run the compiler anywhere simply by running:
+```cmd
+urclpp <sourcefile> [<destinationfile>]
+```
