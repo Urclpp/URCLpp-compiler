@@ -1,1 +1,1 @@
-python %~dp0/../compiler2.py %*
+python %~dp0/../compiler.py %*
