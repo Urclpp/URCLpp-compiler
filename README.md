@@ -12,7 +12,7 @@ Have a good day :)
 ## Run
 Run the compiler by entering the following command in the terminal
 ```cmd
-python compiler2 <sourcefile> [<destinationfile>]
+python compiler <sourcefile> [<destinationfile>]
 ```
 
 ## Install
