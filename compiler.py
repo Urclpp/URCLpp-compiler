@@ -74,11 +74,11 @@ def main():
 
 
 class Lexer:
-    def __init__(self, program):
+    def __init__(self, program: str):
         self.p = program
         self.line_nr = 0
         self.i = 0
-        self.output = []
+        self.output: list[str] = []
         self.errors = ''
 
     def make_tokens(self):
@@ -165,7 +165,7 @@ class Lexer:
             else:  # unknown symbol
                 self.errors += illegal_char.format(self.p[self.i-1], self.line_nr)
 
-    def make_str(self, char):
+    def make_str(self, char: str):
         word = char
         while self.has_next() and self.p[self.i] != char and self.p[self.i] != '\n':
             word += self.p[self.i]
@@ -224,7 +224,7 @@ class Lexer:
         self.i += 1
         self.line_nr += 1
 
-    def has_next(self, i=0):
+    def has_next(self, i: int = 0):
         return self.i + i < len(self.p)
 
 
