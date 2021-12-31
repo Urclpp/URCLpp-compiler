@@ -1,3 +1,6 @@
+from os import error
+from os.path import isfile
+from sys import argv, stdout
 
 # CONSTANTS
 charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_1234567890'
@@ -37,10 +40,23 @@ t_macro = 'opr_mac:'
 t_char = 'opr_cha:'
 t_string = 'opr_str:'
 
+usage = """usage: urclpp <source_file> <destination_file>"""
 
 def main():
-    tok = Lexer(r'''-0X45 dkfh /*267*/40 $4 #50 //comented
-.yeet @ohboi  'a' "ah" ~-5 %ASCII''')
+    source_file = argv[1] if len(argv) >= 2 else None  
+    dest_file = argv[2] if len(argv) >= 3 else None # TODO: write the output to this file or stdout
+
+    source = r'''-0X45 dkfh /*267*/40 $4 #50 //comented
+.yeet @ohboi  'a' "ah" ~-5 %ASCII'''
+    
+    if source_file is not None and isfile(source_file):
+        with open(source_file, mode='r') as sf:
+            source = sf.read().replace("\r", "")
+    
+    print("```")
+    print(source)
+    print("```")
+    tok = Lexer(source)
     tok.make_tokens()
 
     if tok.errors != '':
