@@ -1,15 +1,37 @@
 from os.path import isfile
 from sys import argv, stdout, stderr
+from enum import Enum
+
+# TOKENS
+class T(Enum):
+    newLine = 'nln'
+    word = 'wrd:'
+    imm = 'opr_imm'
+    reg = 'opr_reg'
+    mem = 'opr_mem'
+    port = 'opr_por'
+    relative = 'opr_rel'
+    label = 'opr_lab'
+    macro = 'opr_mac'
+    char = 'opr_cha'
+    string = 'opr_str'
+    sym_lpa = 'sym_lpa'
+    sym_rpa = 'sym_rpa'
+    sym_lbr = 'sym_lbr'
+    sym_rbr = 'sym_rbr'
+
+    def __repr__(self) -> str:
+        return self.value
 
 # CONSTANTS
 charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_1234567890'
 digits = '1234567890'
 bases = 'oOxXbB'
 symbols = {
-    '(': 'sym_lpa',
-    ')': 'sym_rpa',
-    '[': 'sym_lbr',
-    ']': 'sym_rbr',
+    '(': T.sym_lpa,
+    ')': T.sym_rpa,
+    '[': T.sym_lbr,
+    ']': T.sym_rbr,
 }
 opcodes = {  # not done
 
@@ -25,19 +47,6 @@ illegal_char = "Illegal Char '{}' at line {}\n"
 invalid_char = "Invalid Character {} at line {}\n"
 unk_port = "Unknown port name '{}' at line {}\n"
 miss_pair = "Missing closing quote {} at line {}\n"
-
-# TOKENS
-t_newLine = 'nln'
-t_word = 'wrd:'
-t_imm = 'opr_imm:'
-t_reg = 'opr_reg:'
-t_mem = 'opr_mem:'
-t_port = 'opr_por:'
-t_relative = 'opr_rel:'
-t_label = 'opr_lab:'
-t_macro = 'opr_mac:'
-t_char = 'opr_cha:'
-t_string = 'opr_str:'
 
 usage = """usage: urclpp <source_file> <destination_file>"""
 
@@ -72,14 +81,25 @@ def main():
     # parse
     return
 
+class Token:
+    def __init__(self, type: T, value: str = "") -> None:
+        self.type = type
+        self.value = value
+        pass
+    
+    def __repr__(self) -> str:
+        return f"{self.type}:{self.value}"
 
 class Lexer:
     def __init__(self, program: str):
         self.p = program
         self.line_nr = 0
         self.i = 0
-        self.output: list[str] = []
+        self.output: list[Token] = []
         self.errors = ''
+
+    def token(self, type: T, value: str=""):
+        self.output.append(Token(type, value))
 
     def make_tokens(self):
         while self.has_next():
@@ -99,7 +119,7 @@ class Lexer:
                     self.errors += illegal_char.format('/', self.line_nr)
 
             elif self.p[self.i] in symbols:
-                self.output.append(symbols[self.p[self.i]])
+                self.token(symbols[self.p[self.i]])
                 self.i += 1
             else:
                 self.make_operand()
@@ -108,59 +128,59 @@ class Lexer:
 
     def make_operand(self):
         if self.p[self.i] in digits + '+-':  # immediate value
-            self.output.append(t_imm + str(self.make_num()))
+            self.token(T.imm, str(self.make_num()))
 
         elif self.p[self.i] in charset:  # opcode
-            self.output.append(t_word + self.make_word())
+            self.token(T.word, self.make_word())
 
         else:  # format: op_type:<data>
             prefix = self.p[self.i]
             self.i += 1
             if prefix in 'rR$':  # register
                 if self.p[self.i] not in '+-':
-                    self.output.append(t_reg + 'R' + str(self.make_num()))
+                    Token(T.reg, 'R' + str(self.make_num()))
                 else:
                     self.errors += illegal_char.format(self.p[self.i], self.line_nr)
 
             elif prefix in 'mM#':  # memory
                 if self.p[self.i] not in '+-':
-                    self.output.append(t_mem + 'M' + str(self.make_num()))
+                    Token(T.mem, 'M' + str(self.make_num()))
                 else:
                     self.errors += illegal_char.format(self.p[self.i], self.line_nr)
 
             elif prefix == '%':  # port
                 if self.p[self.i] in digits:
-                    self.output.append(t_port + '%' + str(self.make_num()))
+                    self.token(T.port, '%' + str(self.make_num()))
                 else:
                     name = self.make_word()
                     if name in port_names:
-                        self.output.append(t_port + '%' + name)
+                        self.token(T.port, '%' + name)
                     else:
                         self.errors += unk_port.format(name, self.line_nr)
 
             elif prefix == '~':  # relative
-                self.output.append(t_relative + prefix + str(self.make_num()))
+                self.token(T.relative, prefix + str(self.make_num()))
 
             elif prefix == '.':  # label
-                self.output.append(t_label + prefix + self.make_word())
+                self.token(T.label, prefix + self.make_word())
 
             elif prefix == '@':  # macro
-                self.output.append(t_macro + prefix + self.make_word())
+                self.token(T.macro, prefix + self.make_word())
 
             elif prefix == "'":  # character
                 char = self.make_str("'")
                 if char == invalid_char:
                     pass
                 elif len(char) == 3:  # char = "'<char>'"
-                    self.output.append(t_char + char)
+                    self.token(T.char, char)
                 else:
                     self.errors += invalid_char.format(char, self.line_nr)
 
             elif prefix == '"':
-                self.output.append(t_string + self.make_str('"'))
+                self.token(T.string, self.make_str('"'))
 
             # elif prefix == '':
-            #    self.output.append(f'op_')
+            #    self.token(f'op_')
 
             else:  # unknown symbol
                 self.errors += illegal_char.format(self.p[self.i-1], self.line_nr)
@@ -173,7 +193,7 @@ class Lexer:
 
         if self.has_next() and self.p[self.i] == '\n':
             self.line_nr += 1
-            self.output.append(t_newLine)
+            self.token(T.newLine)
             self.errors += miss_pair.format(char, self.line_nr)
             return invalid_char
         else:
@@ -193,7 +213,7 @@ class Lexer:
 
         if self.has_next() and self.p[self.i] == '\n':
             self.line_nr += 1
-            self.output.append(t_newLine)
+            self.token(T.newLine)
         return word
 
     def make_num(self):
@@ -208,7 +228,7 @@ class Lexer:
 
         if self.has_next() and self.p[self.i] == '\n':
             self.line_nr += 1
-            self.output.append(t_newLine)
+            self.token(T.newLine)
         return int(num, 0)
 
     def multi_line_comment(self):
