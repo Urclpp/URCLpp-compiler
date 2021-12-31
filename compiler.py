@@ -89,7 +89,7 @@ class Lexer:
                 self.i += 1
                 self.line_nr += 1
 
-            if self.p[self.i] == '/':
+            elif self.p[self.i] == '/':
                 self.i += 1
                 if self.has_next() and self.p[self.i] == '/':  # inline comment
                     self.inline_comment()
