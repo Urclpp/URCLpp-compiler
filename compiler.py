@@ -2,6 +2,7 @@ from os.path import isfile
 from sys import argv, stdout, stderr
 from enum import Enum
 
+
 # TOKENS
 class T(Enum):
     newLine = 'nln'
@@ -22,6 +23,7 @@ class T(Enum):
 
     def __repr__(self) -> str:
         return self.value
+
 
 # CONSTANTS
 charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_1234567890'
@@ -50,6 +52,7 @@ miss_pair = "Missing closing quote {} at line {}\n"
 
 usage = """usage: urclpp <source_file> <destination_file>"""
 
+
 def main():
     source_name = argv[1] if len(argv) >= 2 else None  
     dest_name = argv[2] if len(argv) >= 3 else None
@@ -69,7 +72,6 @@ def main():
     if dest_name is not None:
         dest = open(dest_name, mode="w")
 
-    
     tok = Lexer(source)
     tok.make_tokens()
 
@@ -81,6 +83,7 @@ def main():
     # parse
     return
 
+
 class Token:
     def __init__(self, type: T, value: str = "") -> None:
         self.type = type
@@ -89,6 +92,7 @@ class Token:
     
     def __repr__(self) -> str:
         return f"{self.type}:{self.value}"
+
 
 class Lexer:
     def __init__(self, program: str):
