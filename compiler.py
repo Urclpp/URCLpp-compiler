@@ -35,7 +35,7 @@ symbols = {
     '[': T.sym_lbr,
     ']': T.sym_rbr,
 }
-opcodes = {  # not done
+opcodes = {
 
 }
 port_names = {'CPUBUS', 'TEXT', 'NUMB', 'SUPPORTED', 'SPECIAL', 'PROFILE', 'X', 'Y', 'COLOR', 'BUFFER', 'G-SPECIAL',
@@ -95,14 +95,14 @@ class Token:
 
 
 class Lexer:
-    def __init__(self, program: str):
+    def __init__(self, program: str) -> None:
         self.p = program
         self.line_nr = 0
         self.i = 0
         self.output: list[Token] = []
         self.errors = ''
 
-    def token(self, type: T, value: str=""):
+    def token(self, type: T, value: str = "") -> None:
         self.output.append(Token(type, value))
 
     def make_tokens(self):
@@ -130,7 +130,7 @@ class Lexer:
 
         return self.output, self.errors
 
-    def make_operand(self):
+    def make_operand(self) -> None:
         if self.p[self.i] in digits + '+-':  # immediate value
             self.token(T.imm, str(self.make_num()))
 
@@ -189,7 +189,7 @@ class Lexer:
             else:  # unknown symbol
                 self.errors += illegal_char.format(self.p[self.i-1], self.line_nr)
 
-    def make_str(self, char: str):
+    def make_str(self, char: str) -> str:
         word = char
         while self.has_next() and self.p[self.i] != char and self.p[self.i] != '\n':
             word += self.p[self.i]
@@ -205,7 +205,7 @@ class Lexer:
             self.i += 1
             return word
 
-    def make_word(self):
+    def make_word(self) -> str:
         word = self.p[self.i]
         self.i += 1
         while self.has_next() and self.p[self.i] != ' ' and self.p[self.i] != '\n':
@@ -220,7 +220,7 @@ class Lexer:
             self.token(T.newLine)
         return word
 
-    def make_num(self):
+    def make_num(self) -> int:
         num = self.p[self.i]
         self.i += 1
         while self.has_next() and self.p[self.i] != ' ' and self.p[self.i] != '\n':
@@ -235,21 +235,76 @@ class Lexer:
             self.token(T.newLine)
         return int(num, 0)
 
-    def multi_line_comment(self):
+    def multi_line_comment(self) -> None:
         while self.has_next(1) and (self.p[self.i] != '*' or self.p[self.i + 1] != '/'):
             if self.p[self.i] == '\n':
                 self.line_nr += 1
             self.i += 1
         self.i += 2
 
-    def inline_comment(self):
+    def inline_comment(self) -> None:
         while self.has_next() and self.p[self.i] != '\n':
             self.i += 1
         self.i += 1
         self.line_nr += 1
 
-    def has_next(self, i: int = 0):
+    def has_next(self, i: int = 0) -> bool:
         return self.i + i < len(self.p)
+
+
+class Instruction:
+    def __init__(self, opcode: Token, *args: Token) -> None:
+        self.opcode = opcode
+        self.operands = []
+        for i, op in enumerate(args):
+            if op is not None:
+                self.operands[i] = op
+
+    def __repr__(self) -> str:
+        str = self.opcode
+        for op in self.operands:
+            str += ' ' + op
+        return str
+
+
+class Parser:
+    def __init__(self, tokens: list[Token]):
+        self.tokens = tokens
+        self.instructions: list[Instruction] = []
+        self.errors = ''
+        self.i = 0
+
+    def parse(self) -> list[Instruction]:
+        while self.has_next():
+            self.make_instruction()
+
+        return self.instructions
+
+    def make_instruction(self) -> None:
+        opcode = self.next_word()
+        # needs to check if number of operandsare correct via dict/enum with expected ones
+
+        self.istructions.append(Instrution())
+        return
+
+    def process_scope(self):  # calls make instructions for the rest of the scope below
+
+        return
+
+    def next_word(self):
+        while self.has_next() and self.tokens[self.i].type != T.word:
+            if self.tokens[self.i].type == T.newLine:
+                return  # operands only and not opcode error, ignore this line and proceed
+            # Opcode Expected, found operand error
+            self.i += 1
+
+        if self.has_next():
+            return self.tokens[self.i]
+        else:  # missing Instruction error
+            return
+
+    def has_next(self, i: int = 0):
+        return self.i + i < len(self.tokens)
 
 
 if __name__ == "__main__":
