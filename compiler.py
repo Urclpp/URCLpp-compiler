@@ -164,7 +164,7 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None  
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''.yeet @ohboi[4][2] ahah '''
+    source = r'''INST ADD[4][]'''
     
     if source_name is not None:
         if isfile(source_name):
@@ -285,7 +285,7 @@ class Lexer:
         if self.p[self.i] in digits + '+-':  # immediate value
             self.token(T.imm, str(self.make_num(indexed)))
 
-        elif self.p[self.i] in charset:  # opcode
+        elif self.p[self.i] in charset:  # opcode or other words
             self.token(T.word, self.make_word(indexed))
 
         else:  # format: op_type:<data>
@@ -343,6 +343,11 @@ class Lexer:
                 else:
                     self.error(E.illegal_char, self.p[self.i-1])
 
+        if self.has_next() and self.p[self.i] == '\n':
+            self.new_line()
+            self.advance()
+            self.token(T.newLine)
+
     def make_str(self, char: str) -> str:
         word = char
         while self.has_next() and self.p[self.i] != char and self.p[self.i] != '\n':
@@ -376,9 +381,6 @@ class Lexer:
                 word += self.p[self.i]
             self.advance()
 
-        if self.has_next() and self.p[self.i] == '\n':
-            self.new_line()
-            self.token(T.newLine)
         return word
 
     def make_num(self, indexed: bool = False) -> int:
@@ -391,7 +393,7 @@ class Lexer:
                 return int(num, 0)
             elif indexed and self.p[self.i] == ']':
                 self.advance()
-                return num
+                return int(num, 0)
 
             if self.p[self.i] not in digits + bases:
                 self.error(E.illegal_char, self.p[self.i])
@@ -399,9 +401,6 @@ class Lexer:
                 num += self.p[self.i]
             self.advance()
 
-        if self.has_next() and self.p[self.i] == '\n':
-            self.new_line()
-            self.token(T.newLine)
         return int(num, 0)
 
     def make_mem_index(self) -> None:
@@ -409,14 +408,16 @@ class Lexer:
         while self.p[self.i] == ' ':
             self.advance()
         if self.p[self.i] == ']':
-            self.token(T.pointer, Token(T.imm, self.j, self.line_nr, '0'))
+            self.token(T.pointer)
+            self.token(T.imm, '0')
             self.advance()
         else:
-            self.make_operand(True)     # make the operand at the index and push the token to output
-            index = self.output.pop()   # retrieve that token generated
-            self.token(T.pointer, index)
+            self.make_operand(True)     # create and push to output new token
+            index = self.output.pop()   # retrieve that token generated to switch orders
+            self.token(T.pointer)
+            self.output.append(index)
 
-        if self.p[self.i] == '[':
+        if self.has_next() and self.p[self.i] == '[':
             self.make_mem_index()
 
     def multi_line_comment(self) -> None:
