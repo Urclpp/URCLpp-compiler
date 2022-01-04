@@ -27,6 +27,10 @@ class T(Enum):
     sym_col = "sym_col",
     sym_gt = "sym_gt",
     sym_lt = "sum_lt",
+    sym_geq = "sym_geq",
+    sym_leq = "sum_leq",
+    sym_equ = "sym_equ",
+    sym_dif = "sum_dif",
 
     def __repr__(self) -> str:
         return self.value
@@ -45,9 +49,92 @@ symbols = {
     ':': T.sym_col,
     '<': T.sym_lt,
     '>': T.sym_gt,
+    '>=': T.sym_geq,
+    '<=': T.sym_leq,
+    '!=': T.sym_dif,
+    '==': T.sym_equ,
 }
-opcodes = {
-
+operand_num = {  # number of operand a function expects
+    # CORE
+    'ADD': 3,
+    'RSH': 2,
+    'LOD': 2,
+    'STR': 2,
+    'BGE': 3,
+    'NOR': 3,
+    'IMM': 2,
+    # I/O
+    'IN': 2,
+    'OUT': 2,
+    # BASIC
+    'SUB': 3,
+    'JMP': 1,
+    'MOV': 2,
+    'NOP': 0,
+    'LSH': 2,
+    'INC': 2,
+    'DEC': 2,
+    'NEG': 2,
+    'AND': 3,
+    'OR': 3,
+    'NOT': 2,
+    'XOR': 3,
+    'XNOR': 3,
+    'NAND': 3,
+    'BRE': 3,
+    'BNE': 3,
+    'BRL': 3,
+    'BRG': 3,
+    'BLE': 3,
+    'BZR': 2,
+    'BNZ': 2,
+    'BRN': 2,
+    'BRP': 2,
+    'BEV': 2,
+    'BOD': 2,
+    'PSH': 2,
+    'POP': 2,
+    'CAL': 2,
+    'RET': 0,
+    'HLT': 0,
+    'CPY': 2,
+    'BRC': 3,
+    'BNC': 3,
+    # COMPLEX
+    'MLT': 3,
+    'DIV': 3,
+    'MOD': 3,
+    'BSR': 3,
+    'BSL': 3,
+    'SRS': 2,
+    'BSS': 3,
+    'SETE': 3,
+    'SETNE': 3,
+    'SETL': 3,
+    'SETG': 3,
+    'SETLE': 3,
+    'SETGE': 3,
+    'SETC': 3,
+    'SETNC': 3,
+    'LLOD': 3,
+    'LSTR': 3,
+    # URCLpp exclusive
+    'END': 0,
+    'EXIT': 0,
+    'SKIP': 0,
+    'IF': 1,
+    'ELIF': 1,
+    'ELSE': 0,
+    'FOR': 2,
+    'WHILE': 1,
+    'SWITCH': 1,
+    'CASE': 1,
+    'DEFAULT': 0,
+    'LCAL': 2,
+    '@DEFINE': 2,
+    'IMPORT': 1,
+    # Directives (not supported atm)
+    'DW': 1
 }
 port_names = {'CPUBUS', 'TEXT', 'NUMB', 'SUPPORTED', 'SPECIAL', 'PROFILE', 'X', 'Y', 'COLOR', 'BUFFER', 'G-SPECIAL',
               'ASCII', 'CHAR5', 'CHAR6', 'ASCII7', 'UTF8', 'UTF16', 'UTF32', 'T-SPECIAL', 'INT', 'UINT', 'BIN', 'HEX',
@@ -56,11 +143,19 @@ port_names = {'CPUBUS', 'TEXT', 'NUMB', 'SUPPORTED', 'SPECIAL', 'PROFILE', 'X', 
               'UD11', 'UD12', 'UD13', 'UD14', 'UD15', 'UD16'}
 default_imports = {"inst.core"}
 
+
 # ERRORS
-illegal_char = "Illegal Char '{}' at line {}\n"
-invalid_char = "Invalid Character {} at line {}\n"
-unk_port = "Unknown port name '{}' at line {}\n"
-miss_pair = "Missing closing quote {} at line {}\n"
+class E(Enum):
+    illegal_char = "Illegal Char '{}'"
+    invalid_char = "Invalid Character {}"
+    unk_port = "Unknown port name '{}'"
+    miss_pair = "Missing closing quote {}"
+    word_miss = "Keyword expected, found {} instead"
+    tok_miss = "Token expected, found {} instead"
+
+    def __repr__(self) -> str:
+        return self.value
+
 
 usage = """usage: urclpp <source_file> <destination_file>"""
 
@@ -69,7 +164,7 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None  
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''.yeet @ohboi[4][2] ahah'''
+    source = r'''.yeet @ohboi[4][2] ahah '''
     
     if source_name is not None:
         if isfile(source_name):
@@ -90,7 +185,7 @@ def main():
     print(tokens, file=dest)
     print("\n", file=dest)
     
-    if lex_errors != '':
+    if not lex_errors:
         print(lex_errors, file=stderr)
         exit(1)
     # parse
@@ -120,6 +215,17 @@ class Token:
         return f"<{self.type} {self.value}>"
 
 
+class Error:
+    def __init__(self, error: str, index: int, line: int, extra: str = None) -> None:
+        self.error = error
+        self.line = line
+        self.index = index
+        self.extra = extra
+
+    def __repr__(self) -> str:
+        return f'{errors[error].format(extra)}, at {index} at line {line}'
+
+
 class Lexer:
     def __init__(self, program: str) -> None:
         self.p = program
@@ -127,88 +233,106 @@ class Lexer:
         self.j = 0
         self.i = 0
         self.output: list[Token] = []
-        self.errors = ''
+        self.errors: list[Error] = []
 
-    def token(self, type: T, pos: int, line: int, value: str = "") -> None:
-        self.output.append(Token(type, pos, line, value))
+    def error(self, error: str, extra: str = None) -> None:
+        self.errors.append(Error(error, self.j, self.line_nr, extra))
+
+    def token(self, type: T, value: str = "") -> None:
+        self.output.append(Token(type, self.j, self.line_nr, value))
 
     def make_tokens(self):
         while self.has_next():
             while self.has_next() and self.p[self.i] in ' ,\t':  # ignore commas and indentation
                 self.advance()
-            if self.p[self.i] == '\n':  # change line
-                self.advance()
-                self.new_line()
+            if self.has_next():
+                if self.p[self.i] == '\n':  # change line
+                    self.advance()
+                    self.new_line()
 
-            elif self.p[self.i] == '/':
-                self.advance()
-                if self.has_next() and self.p[self.i] == '/':  # inline comment
-                    self.inline_comment()
-                elif self.has_next() and self.p[self.i] == '*':
-                    self.multi_line_comment()
-                else:  # you got your hopes high but it was just an illegal char :/
-                    self.errors += illegal_char.format('/', self.line_nr)
+                elif self.p[self.i] == '/':
+                    self.advance()
+                    if self.has_next() and self.p[self.i] == '/':  # inline comment
+                        self.inline_comment()
+                    elif self.has_next() and self.p[self.i] == '*':
+                        self.multi_line_comment()
+                    else:  # you got your hopes high but it was just an illegal char :/
+                        self.error(E.illegal_char, '/')
 
-            elif self.p[self.i] in symbols:
-                self.token(symbols[self.p[self.i]], self.j, self.line_nr)
-                self.advance()
-            else:
-                self.make_operand()
+                elif self.p[self.i] in symbols:
+                    self.make_symbol()
+                    self.advance()
+                else:
+                    self.make_operand()
 
         return self.output, self.errors
 
+    def make_symbol(self):
+        if self.p[self.i] == '<':
+            if self.has_next() and self.p[self.i] == '=':
+                self.token(symbols['<='])
+            else:
+                self.token(symbols['<'])
+        elif self.p[self.i] == '>':
+            if self.has_next() and self.p[self.i] == '=':
+                self.token(symbols['>='])
+            else:
+                self.token(symbols['>'])
+        else:
+            self.token(symbols[self.p[self.i]])
+
     def make_operand(self, indexed: bool = False) -> None:
         if self.p[self.i] in digits + '+-':  # immediate value
-            self.token(T.imm, self.j, self.line_nr, str(self.make_num(indexed)))
+            self.token(T.imm, str(self.make_num(indexed)))
 
         elif self.p[self.i] in charset:  # opcode
-            self.token(T.word, self.j, self.line_nr, self.make_word(indexed))
+            self.token(T.word, self.make_word(indexed))
 
         else:  # format: op_type:<data>
             prefix = self.p[self.i]
             self.advance()
             if prefix in 'rR$':  # register
                 if self.p[self.i] not in '+-':
-                    self.token(T.reg, self.j, self.line_nr, 'R' + str(self.make_num(indexed)))
+                    self.token(T.reg, 'R' + str(self.make_num(indexed)))
                 else:
-                    self.errors += illegal_char.format(self.p[self.i], self.line_nr)
+                    self.error(E.illegal_char, self.p[self.i])
 
             elif prefix in 'mM#':  # memory
                 if self.p[self.i] not in '+-':
-                    self.token(T.mem, self.j, self.line_nr, 'M' + str(self.make_num(indexed)))
+                    self.token(T.mem, 'M' + str(self.make_num(indexed)))
                 else:
-                    self.errors += illegal_char.format(self.p[self.i], self.line_nr)
+                    self.error(E.illegal_char, self.p[self.i])
 
             elif prefix == '%':  # port
                 if self.p[self.i] in digits:
-                    self.token(T.port, self.j, self.line_nr, '%' + str(self.make_num()))
+                    self.token(T.port, '%' + str(self.make_num()))
                 else:
                     name = self.make_word()
                     if name in port_names:
-                        self.token(T.port, self.j, self.line_nr, '%' + name)
+                        self.token(T.port, '%' + name)
                     else:
-                        self.errors += unk_port.format(name, self.line_nr)
+                        self.error(E.unk_port, name)
 
             elif prefix == '~':  # relative
-                self.token(T.relative, self.j, self.line_nr, prefix + str(self.make_num(indexed)))
+                self.token(T.relative, prefix + str(self.make_num(indexed)))
 
             elif prefix == '.':  # label
-                self.token(T.label, self.j, self.line_nr, prefix + self.make_word(indexed))
+                self.token(T.label, prefix + self.make_word(indexed))
 
             elif prefix == '@':  # macro
-                self.token(T.macro, self.j, self.line_nr, prefix + self.make_word(indexed))
+                self.token(T.macro, prefix + self.make_word(indexed))
 
             elif prefix == "'":  # character
                 char = self.make_str("'")
                 if char == invalid_char:
                     pass
                 elif len(char) == 3:  # char = "'<char>'"
-                    self.token(T.char, self.j, self.line_nr, char)
+                    self.token(T.char, char)
                 else:
-                    self.errors += invalid_char.format(char, self.line_nr)
+                    self.error(E.illegal_char, char)
 
             elif prefix == '"':
-                self.token(T.string, self.j, self.line_nr, self.make_str('"'))
+                self.token(T.string, self.make_str('"'))
 
             # elif prefix == '':
             #    self.token()
@@ -217,7 +341,7 @@ class Lexer:
                 if indexed and self.p[self.i] == ']':
                     self.advance()
                 else:
-                    self.errors += illegal_char.format(self.p[self.i-1], self.line_nr)
+                    self.error(E.illegal_char, self.p[self.i-1])
 
     def make_str(self, char: str) -> str:
         word = char
@@ -227,8 +351,8 @@ class Lexer:
 
         if self.has_next() and self.p[self.i] == '\n':
             self.new_line()
-            self.token(T.newLine, self.j, self.line_nr)
-            self.errors += miss_pair.format(char, self.line_nr)
+            self.token(T.newLine)
+            self.error(E.miss_pair, char)
             return invalid_char
         else:
             word += self.p[self.i]
@@ -247,14 +371,14 @@ class Lexer:
                 return word
 
             if self.p[self.i] not in charset:
-                self.errors += illegal_char.format(self.p[self.i], self.line_nr)
+                self.error(E.illegal_char, self.p[self.i])
             else:
                 word += self.p[self.i]
             self.advance()
 
         if self.has_next() and self.p[self.i] == '\n':
             self.new_line()
-            self.token(T.newLine, self.j, self.line_nr)
+            self.token(T.newLine)
         return word
 
     def make_num(self, indexed: bool = False) -> int:
@@ -270,14 +394,14 @@ class Lexer:
                 return num
 
             if self.p[self.i] not in digits + bases:
-                self.errors += illegal_char.format(self.p[self.i], self.line_nr)
+                self.error(E.illegal_char, self.p[self.i])
             else:
                 num += self.p[self.i]
             self.advance()
 
         if self.has_next() and self.p[self.i] == '\n':
             self.new_line()
-            self.token(T.newLine, self.j, self.line_nr)
+            self.token(T.newLine)
         return int(num, 0)
 
     def make_mem_index(self) -> None:
@@ -285,12 +409,12 @@ class Lexer:
         while self.p[self.i] == ' ':
             self.advance()
         if self.p[self.i] == ']':
-            self.token(T.pointer, self.j, self.line_nr, Token(T.imm, self.j, self.line_nr, '0'))
+            self.token(T.pointer, Token(T.imm, self.j, self.line_nr, '0'))
             self.advance()
         else:
             self.make_operand(True)     # make the operand at the index and push the token to output
             index = self.output.pop()   # retrieve that token generated
-            self.token(T.pointer, self.j, self.line_nr, index)
+            self.token(T.pointer, index)
 
         if self.p[self.i] == '[':
             self.make_mem_index()
@@ -374,8 +498,11 @@ class Parser:
         self.tokens = tokens
         self.inst_defs: dict[str, InstDef] = {}
         self.instructions: list[Instruction] = []
-        self.errors = ''
+        self.errors = list[Error] = []
         self.i = 0
+
+    def error(self, error: T, token: Token, extra: str = None):
+        self.errors.append(Error(error, token.position, token.line, extra))
 
     def parse(self) -> Tuple[List[Instruction], str]:
         while self.has_next():
@@ -385,7 +512,7 @@ class Parser:
 
         return self.instructions, self.errors
 
-    def make_instruction(self) -> None:
+    def make_instruction(self, recursive: bool = False) -> None:
         opcode = self.next_word()
         if opcode is None:
             return
@@ -398,8 +525,14 @@ class Parser:
 
         return
 
+    def get_opcode(self):
+        while self.has_next() and self.tokens[self.i].type != T.word:
+            error(E.word_miss, self.token[self.i], str(self.token[self.i]))
+            self.advance()
+
     def next_word(self):
         while self.has_next() and self.tokens[self.i].type != T.word:
+
             if self.tokens[self.i].type == T.newLine:
                 return  # operands only and not opcode error, ignore this line and proceed
             # Opcode Expected, found operand error
@@ -409,6 +542,12 @@ class Parser:
             return self.tokens[self.i]
         else:  # missing Instruction error
             return
+
+    def advance(self):
+        if self.has_next():
+            self.i += 1
+        else:
+            error(E.tok_miss, self.token[self.i], 'Nothing')
 
     def has_next(self, i: int = 0):
         return self.i + i < len(self.tokens)
