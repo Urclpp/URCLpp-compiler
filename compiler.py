@@ -185,7 +185,7 @@ def main():
     print(tokens, file=dest)
     print("\n", file=dest)
     
-    if not lex_errors:
+    if lex_errors != '':
         print(lex_errors, file=stderr)
         exit(1)
     # parse
