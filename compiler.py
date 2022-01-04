@@ -5,6 +5,7 @@ from typing import List, Tuple
 
 from dataclasses import dataclass
 
+
 # TOKENS
 class T(Enum):
     newLine = 'nln'
@@ -107,8 +108,10 @@ def main():
 
 
 class Token:
-    def __init__(self, type: T, value: str = "") -> None:
+    def __init__(self, type: T, pos: int, line: int, value: str = "") -> None:
         self.type = type
+        self.position = pos
+        self.line = line
         self.macro_type = None  # in parsing stage this will be assigned the type the macro is replacing
         self.value = value
         pass
@@ -121,23 +124,24 @@ class Lexer:
     def __init__(self, program: str) -> None:
         self.p = program
         self.line_nr = 0
+        self.j = 0
         self.i = 0
         self.output: list[Token] = []
         self.errors = ''
 
-    def token(self, type: T, value: str = "") -> None:
-        self.output.append(Token(type, value))
+    def token(self, type: T, pos: int, line: int, value: str = "") -> None:
+        self.output.append(Token(type, pos, line, value))
 
     def make_tokens(self):
         while self.has_next():
             while self.has_next() and self.p[self.i] in ' ,\t':  # ignore commas and indentation
-                self.i += 1
+                self.advance()
             if self.p[self.i] == '\n':  # change line
-                self.i += 1
-                self.line_nr += 1
+                self.advance()
+                self.new_line()
 
             elif self.p[self.i] == '/':
-                self.i += 1
+                self.advance()
                 if self.has_next() and self.p[self.i] == '/':  # inline comment
                     self.inline_comment()
                 elif self.has_next() and self.p[self.i] == '*':
@@ -146,8 +150,8 @@ class Lexer:
                     self.errors += illegal_char.format('/', self.line_nr)
 
             elif self.p[self.i] in symbols:
-                self.token(symbols[self.p[self.i]])
-                self.i += 1
+                self.token(symbols[self.p[self.i]], self.j, self.line_nr)
+                self.advance()
             else:
                 self.make_operand()
 
@@ -155,63 +159,63 @@ class Lexer:
 
     def make_operand(self, indexed: bool = False) -> None:
         if self.p[self.i] in digits + '+-':  # immediate value
-            self.token(T.imm, str(self.make_num(indexed)))
+            self.token(T.imm, self.j, self.line_nr, str(self.make_num(indexed)))
 
         elif self.p[self.i] in charset:  # opcode
-            self.token(T.word, self.make_word(indexed))
+            self.token(T.word, self.j, self.line_nr, self.make_word(indexed))
 
         else:  # format: op_type:<data>
             prefix = self.p[self.i]
-            self.i += 1
+            self.advance()
             if prefix in 'rR$':  # register
                 if self.p[self.i] not in '+-':
-                    Token(T.reg, 'R' + str(self.make_num(indexed)))
+                    self.token(T.reg, self.j, self.line_nr, 'R' + str(self.make_num(indexed)))
                 else:
                     self.errors += illegal_char.format(self.p[self.i], self.line_nr)
 
             elif prefix in 'mM#':  # memory
                 if self.p[self.i] not in '+-':
-                    Token(T.mem, 'M' + str(self.make_num(indexed)))
+                    self.token(T.mem, self.j, self.line_nr, 'M' + str(self.make_num(indexed)))
                 else:
                     self.errors += illegal_char.format(self.p[self.i], self.line_nr)
 
             elif prefix == '%':  # port
                 if self.p[self.i] in digits:
-                    self.token(T.port, '%' + str(self.make_num()))
+                    self.token(T.port, self.j, self.line_nr, '%' + str(self.make_num()))
                 else:
                     name = self.make_word()
                     if name in port_names:
-                        self.token(T.port, '%' + name)
+                        self.token(T.port, self.j, self.line_nr, '%' + name)
                     else:
                         self.errors += unk_port.format(name, self.line_nr)
 
             elif prefix == '~':  # relative
-                self.token(T.relative, prefix + str(self.make_num(indexed)))
+                self.token(T.relative, self.j, self.line_nr, prefix + str(self.make_num(indexed)))
 
             elif prefix == '.':  # label
-                self.token(T.label, prefix + self.make_word(indexed))
+                self.token(T.label, self.j, self.line_nr, prefix + self.make_word(indexed))
 
             elif prefix == '@':  # macro
-                self.token(T.macro, prefix + self.make_word(indexed))
+                self.token(T.macro, self.j, self.line_nr, prefix + self.make_word(indexed))
 
             elif prefix == "'":  # character
                 char = self.make_str("'")
                 if char == invalid_char:
                     pass
                 elif len(char) == 3:  # char = "'<char>'"
-                    self.token(T.char, char)
+                    self.token(T.char, self.j, self.line_nr, char)
                 else:
                     self.errors += invalid_char.format(char, self.line_nr)
 
             elif prefix == '"':
-                self.token(T.string, self.make_str('"'))
+                self.token(T.string, self.j, self.line_nr, self.make_str('"'))
 
             # elif prefix == '':
             #    self.token()
 
             else:  # unknown symbol
                 if indexed and self.p[self.i] == ']':
-                    self.i += 1
+                    self.advance()
                 else:
                     self.errors += illegal_char.format(self.p[self.i-1], self.line_nr)
 
@@ -219,38 +223,38 @@ class Lexer:
         word = char
         while self.has_next() and self.p[self.i] != char and self.p[self.i] != '\n':
             word += self.p[self.i]
-            self.i += 1
+            self.advance()
 
         if self.has_next() and self.p[self.i] == '\n':
-            self.line_nr += 1
-            self.token(T.newLine)
+            self.new_line()
+            self.token(T.newLine, self.j, self.line_nr)
             self.errors += miss_pair.format(char, self.line_nr)
             return invalid_char
         else:
             word += self.p[self.i]
-            self.i += 1
+            self.advance()
             return word
 
     def make_word(self, indexed: bool = False) -> str:
         word = self.p[self.i]
-        self.i += 1
+        self.advance()
         while self.has_next() and self.p[self.i] not in indentation:
             if self.p[self.i] == '[':  # has pointer after the operand
                 self.make_mem_index()
                 return word
             elif indexed and self.p[self.i] == ']':
-                self.i += 1
+                self.advance()
                 return word
 
             if self.p[self.i] not in charset:
                 self.errors += illegal_char.format(self.p[self.i], self.line_nr)
             else:
                 word += self.p[self.i]
-            self.i += 1
+            self.advance()
 
         if self.has_next() and self.p[self.i] == '\n':
-            self.line_nr += 1
-            self.token(T.newLine)
+            self.new_line()
+            self.token(T.newLine, self.j, self.line_nr)
         return word
 
     def make_num(self, indexed: bool = False) -> int:
@@ -262,31 +266,31 @@ class Lexer:
                 self.make_mem_index()
                 return int(num, 0)
             elif indexed and self.p[self.i] == ']':
-                self.i += 1
+                self.advance()
                 return num
 
             if self.p[self.i] not in digits + bases:
                 self.errors += illegal_char.format(self.p[self.i], self.line_nr)
             else:
                 num += self.p[self.i]
-            self.i += 1
+            self.advance()
 
         if self.has_next() and self.p[self.i] == '\n':
-            self.line_nr += 1
-            self.token(T.newLine)
+            self.new_line()
+            self.token(T.newLine, self.j, self.line_nr)
         return int(num, 0)
 
     def make_mem_index(self) -> None:
-        self.i += 1
+        self.advance()
         while self.p[self.i] == ' ':
-            self.i += 1
+            self.advance()
         if self.p[self.i] == ']':
-            self.token(T.pointer, Token(T.imm, '0'))
-            self.i += 1
+            self.token(T.pointer, self.j, self.line_nr, Token(T.imm, self.j, self.line_nr, '0'))
+            self.advance()
         else:
             self.make_operand(True)     # make the operand at the index and push the token to output
             index = self.output.pop()   # retrieve that token generated
-            self.token(T.pointer, index)
+            self.token(T.pointer, self.j, self.line_nr, index)
 
         if self.p[self.i] == '[':
             self.make_mem_index()
@@ -294,15 +298,23 @@ class Lexer:
     def multi_line_comment(self) -> None:
         while self.has_next(1) and (self.p[self.i] != '*' or self.p[self.i + 1] != '/'):
             if self.p[self.i] == '\n':
-                self.line_nr += 1
-            self.i += 1
-        self.i += 2
+                self.new_line()
+            self.advance()
+        self.advance()
 
     def inline_comment(self) -> None:
         while self.has_next() and self.p[self.i] != '\n':
-            self.i += 1
-        self.i += 1
+            self.advance()
+        self.advance()
+        self.new_line()
+
+    def advance(self, i: int = 1):
+        self.i += i
+        self.j += i
+
+    def new_line(self):
         self.line_nr += 1
+        self.j = 0
 
     def has_next(self, i: int = 0) -> bool:
         return self.i + i < len(self.p)
