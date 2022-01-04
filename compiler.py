@@ -1,6 +1,7 @@
 from os.path import isfile
 from sys import argv, stdout, stderr
 from enum import Enum
+from typing import List, Tuple
 
 
 # TOKENS
@@ -83,7 +84,7 @@ def main():
     print("tokens:", file=dest)
     print(tokens, file=dest)
     print("\n", file=dest)
-
+    
     if lex_errors != '':
         print(lex_errors, file=stderr)
         exit(1)
@@ -317,16 +318,16 @@ class Instruction:
 
 
 class Parser:
-    def __init__(self, tokens: list[Token]):
+    def __init__(self, tokens: List[Token]):
         self.tokens = tokens
         self.instructions: list[Instruction] = []
         self.errors = ''
         self.i = 0
 
-    def parse(self) -> tuple[list[Instruction], str]:
+    def parse(self) -> Tuple[List[Instruction], str]:
         while self.has_next():
             self.make_instruction()
-            # To prevent infinite loop, we should probably check whether a token was found and report an error instead
+            # To prevent infinite loop, we should probably check whether a token was found and report an error instead 
             self.i += 1
 
         return self.instructions, self.errors
