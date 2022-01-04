@@ -20,7 +20,8 @@ class T(Enum):
     sym_lpa = 'sym_lpa'
     sym_rpa = 'sym_rpa'
     sym_lbr = 'sym_lbr'
-    sym_rbr = 'sym_rbr'
+    sym_rbr = 'sym_rbr',
+    sym_col ="sym_col"
 
     def __repr__(self) -> str:
         return self.value
@@ -36,6 +37,7 @@ symbols = {
     ')': T.sym_rpa,
     '[': T.sym_lbr,
     ']': T.sym_rbr,
+    ':': T.sym_col,
 }
 opcodes = {
 
@@ -45,6 +47,7 @@ port_names = {'CPUBUS', 'TEXT', 'NUMB', 'SUPPORTED', 'SPECIAL', 'PROFILE', 'X', 
               'FLOAT', 'FIXED', 'N-SPECIAL', 'ADDR', 'BUS', 'PAGE', 'S-SPECIAL', 'RNG', 'NOTE', 'INSTR', 'NLEG', 'WAIT',
               'NADDR', 'DATA', 'M-SPECIAL', 'UD1', 'UD2', 'UD3', 'UD4', 'UD5', 'UD6', 'UD7', 'UD8', 'UD9', 'UD10',
               'UD11', 'UD12', 'UD13', 'UD14', 'UD15', 'UD16'}
+default_imports = {"inst.core"}
 
 # ERRORS
 illegal_char = "Illegal Char '{}' at line {}\n"
@@ -68,21 +71,34 @@ def main():
                 source = sf.read().replace("\r", "")
         else:
             print(f'"{source_name}" is not a file', file=stderr)
+            exit(1)
 
     dest = stdout
 
     if dest_name is not None:
         dest = open(dest_name, mode="w")
 
-    tok = Lexer(source)
-    tok.make_tokens()
+    tokens, lex_errors = Lexer(source).make_tokens()
 
-    if tok.errors != '':
-        print(tok.errors, file=stderr)
-        return
-    print(tok.output, file=dest)
+    print("tokens:", file=dest)
+    print(tokens, file=dest)
+    print("\n", file=dest)
 
+    if lex_errors != '':
+        print(lex_errors, file=stderr)
+        exit(1)
     # parse
+    instructions, parse_errors = Parser(tokens).parse()
+
+
+    print("program:", file=dest)
+    print(instructions, file=dest)
+    print("\n", file=dest)
+
+    if parse_errors != '':
+        print(parse_errors, file=stderr)
+        exit(1)
+
     return
 
 
@@ -93,7 +109,7 @@ class Token:
         pass
     
     def __repr__(self) -> str:
-        return f"{self.type}:{self.value}"
+        return f"<{self.type} {self.value}>"
 
 
 class Lexer:
@@ -288,36 +304,40 @@ class Lexer:
 class Instruction:
     def __init__(self, opcode: Token, *args: Token) -> None:
         self.opcode = opcode
-        self.operands = []
+        self.operands: list[Token] = []
         for i, op in enumerate(args):
             if op is not None:
                 self.operands[i] = op
 
     def __repr__(self) -> str:
-        str = self.opcode
+        out = f'<INST {self.opcode}'
         for op in self.operands:
-            str += ' ' + op
-        return str
+            out += ' ' + str(op)
+        return out + '>'
 
 
-'''class Parser:
+class Parser:
     def __init__(self, tokens: list[Token]):
         self.tokens = tokens
         self.instructions: list[Instruction] = []
         self.errors = ''
         self.i = 0
 
-    def parse(self) -> list[Instruction]:
+    def parse(self) -> tuple[list[Instruction], str]:
         while self.has_next():
             self.make_instruction()
+            # To prevent infinite loop, we should probably check whether a token was found and report an error instead
+            self.i += 1
 
-        return self.instructions
+        return self.instructions, self.errors
 
     def make_instruction(self) -> None:
         opcode = self.next_word()
-        # needs to check if number of operands are correct via dict/enum with expected ones
+        if (opcode is None):
+            return
+        # needs to check if number of operandsare correct via dict/enum with expected ones
 
-        self.istructions.append(Instrution())
+        self.instructions.append(Instruction(opcode))
         return
 
     def process_scope(self):  # calls make instructions for the rest of the scope below
@@ -337,7 +357,7 @@ class Instruction:
             return
 
     def has_next(self, i: int = 0):
-        return self.i + i < len(self.tokens)'''
+        return self.i + i < len(self.tokens)
 
 
 if __name__ == "__main__":
