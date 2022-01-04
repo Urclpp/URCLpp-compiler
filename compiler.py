@@ -14,6 +14,7 @@ class T(Enum):
     relative = 'opr_rel'
     label = 'opr_lab'
     macro = 'opr_mac'
+    pointer = 'opr_poi'
     char = 'opr_cha'
     string = 'opr_str'
     sym_lpa = 'sym_lpa'
@@ -29,6 +30,7 @@ class T(Enum):
 charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_1234567890'
 digits = '1234567890'
 bases = 'oOxXbB'
+indentation = ' \t\n'
 symbols = {
     '(': T.sym_lpa,
     ')': T.sym_rpa,
@@ -57,8 +59,8 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None  
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''-0X45 dkfh /*267*/40 $4 #50 //comented
-.yeet @ohboi  'a' "ah" ~-5 %ASCII'''
+    source = r'''-0X45 dkfh /*267*/40 $ #50 //comented
+.yeet @ohboi[4][] 'a' "ah" ~-5 %ASCII ['''
     
     if source_name is not None:
         if isfile(source_name):
@@ -184,7 +186,7 @@ class Lexer:
                 self.token(T.string, self.make_str('"'))
 
             # elif prefix == '':
-            #    self.token(f'op_')
+            #    self.token()
 
             else:  # unknown symbol
                 self.errors += illegal_char.format(self.p[self.i-1], self.line_nr)
@@ -208,7 +210,11 @@ class Lexer:
     def make_word(self) -> str:
         word = self.p[self.i]
         self.i += 1
-        while self.has_next() and self.p[self.i] != ' ' and self.p[self.i] != '\n':
+        while self.has_next() and self.p[self.i] not in indentation:
+            if self.p[self.i] == '[':  # has pointer after the operand
+                self.make_mem_index()
+                return word
+
             if self.p[self.i] not in charset:
                 self.errors += illegal_char.format(self.p[self.i], self.line_nr)
             else:
@@ -222,8 +228,14 @@ class Lexer:
 
     def make_num(self) -> int:
         num = self.p[self.i]
+        if num == ' ':
+            return 0
         self.i += 1
-        while self.has_next() and self.p[self.i] != ' ' and self.p[self.i] != '\n':
+        while self.has_next() and self.p[self.i] not in indentation:
+            if self.p[self.i] == '[':  # has pointer after the operand
+                self.make_mem_index()
+                return int(num, 0)
+
             if self.p[self.i] not in digits + bases:
                 self.errors += illegal_char.format(self.p[self.i], self.line_nr)
             else:
@@ -234,6 +246,27 @@ class Lexer:
             self.line_nr += 1
             self.token(T.newLine)
         return int(num, 0)
+
+    def make_mem_index(self) -> None:
+        self.i += 1
+        if self.p[self.i] == ']':
+            self.token(T.pointer, '0')
+            return
+        index = ''
+        while self.has_next() and self.p[self.i] not in indentation and self.p[self.i] != ']':
+            if self.p[self.i] not in digits + bases:
+                self.errors += illegal_char.format(self.p[self.i], self.line_nr)
+            else:
+                index += self.p[self.i]
+            self.i += 1
+
+        if self.has_next() and self.p[self.i] == '\n':
+            self.errors += miss_pair.format(']', self.line_nr)
+            return
+        self.i += 1
+        self.token(T.pointer, str(int(index, 0)))
+        if self.p[self.i] == '[':
+            self.make_mem_index()
 
     def multi_line_comment(self) -> None:
         while self.has_next(1) and (self.p[self.i] != '*' or self.p[self.i + 1] != '/'):
@@ -267,7 +300,7 @@ class Instruction:
         return str
 
 
-class Parser:
+'''class Parser:
     def __init__(self, tokens: list[Token]):
         self.tokens = tokens
         self.instructions: list[Instruction] = []
@@ -282,7 +315,7 @@ class Parser:
 
     def make_instruction(self) -> None:
         opcode = self.next_word()
-        # needs to check if number of operandsare correct via dict/enum with expected ones
+        # needs to check if number of operands are correct via dict/enum with expected ones
 
         self.istructions.append(Instrution())
         return
@@ -304,7 +337,7 @@ class Parser:
             return
 
     def has_next(self, i: int = 0):
-        return self.i + i < len(self.tokens)
+        return self.i + i < len(self.tokens)'''
 
 
 if __name__ == "__main__":
