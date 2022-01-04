@@ -3,6 +3,7 @@ from sys import argv, stdout, stderr
 from enum import Enum
 from typing import List, Tuple
 
+from dataclasses import dataclass
 
 # TOKENS
 class T(Enum):
@@ -22,7 +23,9 @@ class T(Enum):
     sym_rpa = 'sym_rpa'
     sym_lbr = 'sym_lbr'
     sym_rbr = 'sym_rbr',
-    sym_col ="sym_col"
+    sym_col = "sym_col",
+    sym_gt = "sym_gt",
+    sym_lt = "sum_lt",
 
     def __repr__(self) -> str:
         return self.value
@@ -39,6 +42,8 @@ symbols = {
     '[': T.sym_lbr,
     ']': T.sym_rbr,
     ':': T.sym_col,
+    '<': T.sym_lt,
+    '>': T.sym_gt,
 }
 opcodes = {
 
@@ -63,8 +68,7 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None  
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''-0X45 dkfh /*267*/40 $ #50 //comented
-.yeet @ohboi[4][] 'a' "ah" ~-5 %ASCII ['''
+    source = r'''.yeet @ohboi[4][2] ahah'''
     
     if source_name is not None:
         if isfile(source_name):
@@ -91,7 +95,6 @@ def main():
     # parse
     instructions, parse_errors = Parser(tokens).parse()
 
-
     print("program:", file=dest)
     print(instructions, file=dest)
     print("\n", file=dest)
@@ -106,6 +109,7 @@ def main():
 class Token:
     def __init__(self, type: T, value: str = "") -> None:
         self.type = type
+        self.macro_type = None  # in parsing stage this will be assigned the type the macro is replacing
         self.value = value
         pass
     
@@ -149,25 +153,25 @@ class Lexer:
 
         return self.output, self.errors
 
-    def make_operand(self) -> None:
+    def make_operand(self, indexed: bool = False) -> None:
         if self.p[self.i] in digits + '+-':  # immediate value
-            self.token(T.imm, str(self.make_num()))
+            self.token(T.imm, str(self.make_num(indexed)))
 
         elif self.p[self.i] in charset:  # opcode
-            self.token(T.word, self.make_word())
+            self.token(T.word, self.make_word(indexed))
 
         else:  # format: op_type:<data>
             prefix = self.p[self.i]
             self.i += 1
             if prefix in 'rR$':  # register
                 if self.p[self.i] not in '+-':
-                    Token(T.reg, 'R' + str(self.make_num()))
+                    Token(T.reg, 'R' + str(self.make_num(indexed)))
                 else:
                     self.errors += illegal_char.format(self.p[self.i], self.line_nr)
 
             elif prefix in 'mM#':  # memory
                 if self.p[self.i] not in '+-':
-                    Token(T.mem, 'M' + str(self.make_num()))
+                    Token(T.mem, 'M' + str(self.make_num(indexed)))
                 else:
                     self.errors += illegal_char.format(self.p[self.i], self.line_nr)
 
@@ -182,13 +186,13 @@ class Lexer:
                         self.errors += unk_port.format(name, self.line_nr)
 
             elif prefix == '~':  # relative
-                self.token(T.relative, prefix + str(self.make_num()))
+                self.token(T.relative, prefix + str(self.make_num(indexed)))
 
             elif prefix == '.':  # label
-                self.token(T.label, prefix + self.make_word())
+                self.token(T.label, prefix + self.make_word(indexed))
 
             elif prefix == '@':  # macro
-                self.token(T.macro, prefix + self.make_word())
+                self.token(T.macro, prefix + self.make_word(indexed))
 
             elif prefix == "'":  # character
                 char = self.make_str("'")
@@ -206,7 +210,10 @@ class Lexer:
             #    self.token()
 
             else:  # unknown symbol
-                self.errors += illegal_char.format(self.p[self.i-1], self.line_nr)
+                if indexed and self.p[self.i] == ']':
+                    self.i += 1
+                else:
+                    self.errors += illegal_char.format(self.p[self.i-1], self.line_nr)
 
     def make_str(self, char: str) -> str:
         word = char
@@ -224,12 +231,15 @@ class Lexer:
             self.i += 1
             return word
 
-    def make_word(self) -> str:
+    def make_word(self, indexed: bool = False) -> str:
         word = self.p[self.i]
         self.i += 1
         while self.has_next() and self.p[self.i] not in indentation:
             if self.p[self.i] == '[':  # has pointer after the operand
                 self.make_mem_index()
+                return word
+            elif indexed and self.p[self.i] == ']':
+                self.i += 1
                 return word
 
             if self.p[self.i] not in charset:
@@ -243,15 +253,17 @@ class Lexer:
             self.token(T.newLine)
         return word
 
-    def make_num(self) -> int:
-        num = self.p[self.i]
-        if num == ' ':
+    def make_num(self, indexed: bool = False) -> int:
+        if self.p[self.i] == ' ':
             return 0
-        self.i += 1
+        num = ''
         while self.has_next() and self.p[self.i] not in indentation:
             if self.p[self.i] == '[':  # has pointer after the operand
                 self.make_mem_index()
                 return int(num, 0)
+            elif indexed and self.p[self.i] == ']':
+                self.i += 1
+                return num
 
             if self.p[self.i] not in digits + bases:
                 self.errors += illegal_char.format(self.p[self.i], self.line_nr)
@@ -266,22 +278,16 @@ class Lexer:
 
     def make_mem_index(self) -> None:
         self.i += 1
-        if self.p[self.i] == ']':
-            self.token(T.pointer, '0')
-            return
-        index = ''
-        while self.has_next() and self.p[self.i] not in indentation and self.p[self.i] != ']':
-            if self.p[self.i] not in digits + bases:
-                self.errors += illegal_char.format(self.p[self.i], self.line_nr)
-            else:
-                index += self.p[self.i]
+        while self.p[self.i] == ' ':
             self.i += 1
+        if self.p[self.i] == ']':
+            self.token(T.pointer, Token(T.imm, '0'))
+            self.i += 1
+        else:
+            self.make_operand(True)     # make the operand at the index and push the token to output
+            index = self.output.pop()   # retrieve that token generated
+            self.token(T.pointer, index)
 
-        if self.has_next() and self.p[self.i] == '\n':
-            self.errors += miss_pair.format(']', self.line_nr)
-            return
-        self.i += 1
-        self.token(T.pointer, str(int(index, 0)))
         if self.p[self.i] == '[':
             self.make_mem_index()
 
@@ -302,6 +308,40 @@ class Lexer:
         return self.i + i < len(self.p)
 
 
+@dataclass
+class Id:
+    pass
+
+
+class OT(Enum):
+    Reg = "reg"
+    Imm = "imm"
+    Any = "any"
+    pass
+
+
+class OpOp(Enum):
+    read = "read"
+    write = "write"
+    both = "both"
+
+
+@dataclass
+class OperantDef:
+    type: OT
+    op: OpOp
+
+
+@dataclass
+class InstDef(Id):
+    operands: List[OperantDef]
+
+
+@dataclass
+class LabelDef(Id):
+    location: int
+
+
 class Instruction:
     def __init__(self, opcode: Token, *args: Token) -> None:
         self.opcode = opcode
@@ -320,6 +360,7 @@ class Instruction:
 class Parser:
     def __init__(self, tokens: List[Token]):
         self.tokens = tokens
+        self.inst_defs: dict[str, InstDef] = {}
         self.instructions: list[Instruction] = []
         self.errors = ''
         self.i = 0
@@ -334,9 +375,9 @@ class Parser:
 
     def make_instruction(self) -> None:
         opcode = self.next_word()
-        if (opcode is None):
+        if opcode is None:
             return
-        # needs to check if number of operandsare correct via dict/enum with expected ones
+        # needs to check if number of operands are correct via dict/enum with expected ones
 
         self.instructions.append(Instruction(opcode))
         return
