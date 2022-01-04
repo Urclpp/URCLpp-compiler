@@ -1,6 +1,7 @@
 from os.path import isfile
 from sys import argv, stdout, stderr
 from enum import Enum
+from typing import List, Tuple
 
 
 # TOKENS
@@ -224,7 +225,7 @@ class Lexer:
     def make_word(self) -> str:
         word = self.p[self.i]
         self.i += 1
-        while self.has_next() and self.p[self.i] != ' ' and self.p[self.i] != '\n':
+        while self.has_next() and self.p[self.i] != ' ' and self.p[self.i] != '\n' and self.p[self.i] not in symbols:
             if self.p[self.i] not in charset:
                 self.errors += illegal_char.format(self.p[self.i], self.line_nr)
             else:
@@ -284,13 +285,13 @@ class Instruction:
 
 
 class Parser:
-    def __init__(self, tokens: list[Token]):
+    def __init__(self, tokens: List[Token]):
         self.tokens = tokens
         self.instructions: list[Instruction] = []
         self.errors = ''
         self.i = 0
 
-    def parse(self) -> tuple[list[Instruction], str]:
+    def parse(self) -> Tuple[List[Instruction], str]:
         while self.has_next():
             self.make_instruction()
             # To prevent infinite loop, we should probably check whether a token was found and report an error instead 
