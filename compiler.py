@@ -3,6 +3,7 @@ from sys import argv, stdout, stderr
 from enum import Enum
 from typing import List, Tuple
 
+from dataclasses import dataclass
 
 # TOKENS
 class T(Enum):
@@ -21,7 +22,9 @@ class T(Enum):
     sym_rpa = 'sym_rpa'
     sym_lbr = 'sym_lbr'
     sym_rbr = 'sym_rbr',
-    sym_col ="sym_col"
+    sym_col ="sym_col",
+    sym_gt = "sym_gt",
+    sym_lt = "sum_lt",
 
     def __repr__(self) -> str:
         return self.value
@@ -37,6 +40,8 @@ symbols = {
     '[': T.sym_lbr,
     ']': T.sym_rbr,
     ':': T.sym_col,
+    '<': T.sym_lt,
+    '>': T.sym_gt,
 }
 opcodes = {
 
@@ -268,6 +273,33 @@ class Lexer:
     def has_next(self, i: int = 0) -> bool:
         return self.i + i < len(self.p)
 
+@dataclass
+class Id:
+    pass
+
+class OT(Enum):
+    Reg = "reg"
+    Imm = "imm"
+    Any = "any"
+    pass
+
+class OpOp(Enum):
+    read = "read"
+    write = "write"
+    both = "both"
+
+@dataclass
+class OperantDef:
+    type: OT
+    op: OpOp
+
+@dataclass
+class InstDef(Id):
+    operands: List[OperantDef]
+
+@dataclass
+class LabelDef(Id):
+    location: int
 
 class Instruction:
     def __init__(self, opcode: Token, *args: Token) -> None:
@@ -287,6 +319,7 @@ class Instruction:
 class Parser:
     def __init__(self, tokens: List[Token]):
         self.tokens = tokens
+        self.inst_defs: dict[str, InstDef] = {}
         self.instructions: list[Instruction] = []
         self.errors = ''
         self.i = 0
