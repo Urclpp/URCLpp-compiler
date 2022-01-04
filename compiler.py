@@ -19,7 +19,8 @@ class T(Enum):
     sym_lpa = 'sym_lpa'
     sym_rpa = 'sym_rpa'
     sym_lbr = 'sym_lbr'
-    sym_rbr = 'sym_rbr'
+    sym_rbr = 'sym_rbr',
+    sym_col ="sym_col"
 
     def __repr__(self) -> str:
         return self.value
@@ -34,6 +35,7 @@ symbols = {
     ')': T.sym_rpa,
     '[': T.sym_lbr,
     ']': T.sym_rbr,
+    ':': T.sym_col,
 }
 opcodes = {
 
@@ -67,6 +69,7 @@ def main():
                 source = sf.read().replace("\r", "")
         else:
             print(f'"{source_name}" is not a file', file=stderr)
+            exit(1)
 
     dest = stdout
 
@@ -75,26 +78,24 @@ def main():
 
     tokens, lex_errors = Lexer(source).make_tokens()
 
-    if lex_errors != '':
-        print(lex_errors, file=stderr)
-        exit(1)
-
     print("tokens:", file=dest)
     print(tokens, file=dest)
     print("\n", file=dest)
     
+    if lex_errors != '':
+        print(lex_errors, file=stderr)
+        exit(1)
     # parse
     instructions, parse_errors = Parser(tokens).parse()
-
-    if parse_errors != '':
-        print(parse_errors, file=stderr)
-        exit(1)
 
 
     print("program:", file=dest)
     print(instructions, file=dest)
     print("\n", file=dest)
 
+    if parse_errors != '':
+        print(parse_errors, file=stderr)
+        exit(1)
 
     return
 
