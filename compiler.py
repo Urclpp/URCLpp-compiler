@@ -267,7 +267,7 @@ class Lexer:
                 return int(num, 0)
             elif indexed and self.p[self.i] == ']':
                 self.advance()
-                return num
+                return int(num,0)
 
             if self.p[self.i] not in digits + bases:
                 self.errors += illegal_char.format(self.p[self.i], self.line_nr)
@@ -285,12 +285,13 @@ class Lexer:
         while self.p[self.i] == ' ':
             self.advance()
         if self.p[self.i] == ']':
-            self.token(T.pointer, self.j, self.line_nr, Token(T.imm, self.j, self.line_nr, '0'))
+            self.token(T.pointer, self.j, self.line_nr, '0')
             self.advance()
         else:
+            # FIXME(Kuggo): what is happening here? Why does this create a new token with the same value as the last?
             self.make_operand(True)     # make the operand at the index and push the token to output
             index = self.output.pop()   # retrieve that token generated
-            self.token(T.pointer, self.j, self.line_nr, index)
+            self.token(T.pointer, self.j, self.line_nr, index.value)
 
         if self.p[self.i] == '[':
             self.make_mem_index()
