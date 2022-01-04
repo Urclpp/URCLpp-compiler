@@ -232,7 +232,7 @@ class Lexer:
     def make_word(self) -> str:
         word = self.p[self.i]
         self.i += 1
-        while self.has_next() and self.p[self.i] not in indentation:
+        while self.has_next() and self.p[self.i] not in indentation and self.p[self.i] not in symbols:
             if self.p[self.i] == '[':  # has pointer after the operand
                 self.make_mem_index()
                 return word
@@ -311,24 +311,21 @@ class Id:
     pass
 
 class OT(Enum):
-    Reg = "reg"
+    Read = "read"
+    Write = "write"
     Imm = "imm"
     Any = "any"
-    pass
 
-class OpOp(Enum):
-    read = "read"
-    write = "write"
-    both = "both"
-
-@dataclass
-class OperantDef:
-    type: OT
-    op: OpOp
+op_types = {
+    'R': OT.Read,
+    'W': OT.Write,
+    'I': OT.Imm,
+    'A': OT.Any,
+}
 
 @dataclass
 class InstDef(Id):
-    operands: List[OperantDef]
+    operands: List[OT]
 
 @dataclass
 class LabelDef(Id):
