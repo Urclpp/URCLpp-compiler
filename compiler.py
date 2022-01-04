@@ -1,7 +1,7 @@
 from os.path import isfile
 from sys import argv, stdout, stderr
 from enum import Enum
-from typing import List, Tuple
+from typing import List, OrderedDict, Tuple
 
 from dataclasses import dataclass
 
@@ -137,8 +137,9 @@ class Lexer:
             while self.has_next() and self.p[self.i] in ' ,\t':  # ignore commas and indentation
                 self.advance()
             if self.p[self.i] == '\n':  # change line
-                self.advance()
                 self.new_line()
+                self.token(T.newLine, self.j, self.line_nr)
+                self.advance()
 
             elif self.p[self.i] == '/':
                 self.advance()
@@ -245,16 +246,14 @@ class Lexer:
             elif indexed and self.p[self.i] == ']':
                 self.advance()
                 return word
-
+            if self.p[self.i] in symbols:
+                return word
             if self.p[self.i] not in charset:
                 self.errors += illegal_char.format(self.p[self.i], self.line_nr)
             else:
                 word += self.p[self.i]
             self.advance()
 
-        if self.has_next() and self.p[self.i] == '\n':
-            self.new_line()
-            self.token(T.newLine, self.j, self.line_nr)
         return word
 
     def make_num(self, indexed: bool = False) -> int:
@@ -275,9 +274,6 @@ class Lexer:
                 num += self.p[self.i]
             self.advance()
 
-        if self.has_next() and self.p[self.i] == '\n':
-            self.new_line()
-            self.token(T.newLine, self.j, self.line_nr)
         return int(num, 0)
 
     def make_mem_index(self) -> None:
@@ -325,30 +321,22 @@ class Lexer:
 class Id:
     pass
 
-
 class OT(Enum):
-    Reg = "reg"
+    Read = "read"
+    Write = "write"
     Imm = "imm"
     Any = "any"
-    pass
 
-
-class OpOp(Enum):
-    read = "read"
-    write = "write"
-    both = "both"
-
-
-@dataclass
-class OperantDef:
-    type: OT
-    op: OpOp
-
+op_types = {
+    'R': OT.Read,
+    'W': OT.Write,
+    'I': OT.Imm,
+    'A': OT.Any,
+}
 
 @dataclass
 class InstDef(Id):
-    operands: List[OperantDef]
-
+    operands: OrderedDict[str, OT]
 
 @dataclass
 class LabelDef(Id):
@@ -373,18 +361,63 @@ class Instruction:
 class Parser:
     def __init__(self, tokens: List[Token]):
         self.tokens = tokens
-        self.inst_defs: dict[str, InstDef] = {}
+        self.ids: dict[str, Id] = {}
         self.instructions: list[Instruction] = []
         self.errors = ''
         self.i = 0
+    
+    def error(self, msg: str):
+        self.errors += msg + '\n'
 
     def parse(self) -> Tuple[List[Instruction], str]:
         while self.has_next():
+            word = self.next_word()
+            if (word is None):
+                break
+
+            if word.value.upper() == 'INST':
+                self.make_inst_def()
+
             self.make_instruction()
             # To prevent infinite loop, we should probably check whether a token was found and report an error instead 
             self.i += 1
-
+        print(self.ids)
         return self.instructions, self.errors
+
+    def make_inst_def(self) -> None:
+        self.i += 1
+        name = self.next_word()
+        if (name is None):
+            self.errors += "expected Instruction name\n"
+            return
+
+        inst = InstDef(OrderedDict())
+        if self.ids.get(name.value) is not None:
+            self.error(msg=f"identifier {name} is already defined")
+            return
+        self.ids[name.value] = inst
+
+
+        self.i += 1
+        while (self.has_next() and self.tokens[self.i].type is not T.newLine):
+            op_name = self.next()
+            if op_name is None:
+                self.error(msg="missing operant name")
+                self.skip_line()
+                return
+            if not self.has_next() or self.next().type is not T.sym_col:
+                self.error(msg="missing colon")
+                self.skip_line()
+                return
+
+            type_str = self.next()
+            op_type = None if type_str is None else op_types.get(type_str.value)
+            if op_type is None:
+                self.error(msg="missing type (R, W, I or A)")
+                return
+            inst.operands[op_name.value] = op_type
+        
+        pass
 
     def make_instruction(self) -> None:
         opcode = self.next_word()
@@ -398,6 +431,20 @@ class Parser:
     def process_scope(self):  # calls make instructions for the rest of the scope below
 
         return
+    
+    def peak(self):
+        return self.tokens[self.i]
+    
+    def next(self):
+        self.i += 1
+        return self.tokens[self.i-1]
+
+    def skip_line(self):
+        if self.skip_until(T.newLine): self.i += 1
+
+    def skip_until(self, type: T):
+        while self.has_next() and self.next().type is not type: pass
+        return self.has_next()
 
     def next_word(self):
         while self.has_next() and self.tokens[self.i].type != T.word:
