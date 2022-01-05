@@ -143,7 +143,7 @@ port_names = {'CPUBUS', 'TEXT', 'NUMB', 'SUPPORTED', 'SPECIAL', 'PROFILE', 'X', 
               'UD11', 'UD12', 'UD13', 'UD14', 'UD15', 'UD16'}
 
 lib_root = "Libraries"
-default_imports = {"inst.core"}
+default_imports = {"inst.core", "inst.io", "inst.basic", "inst.complex"}
 
 def read_lib(name: str):
     path = lib_root + "/" + name.replace(".", "/") + ".urcl"
@@ -206,7 +206,7 @@ def main():
     print("\n", file=dest)
 
     print("Identifiers:", file=dest)
-    print(parser.ids, file=dest)
+    print(parser.ids.keys(), file=dest)
     print("\n", file=dest)
 
 
