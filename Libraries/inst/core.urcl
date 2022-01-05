@@ -1,25 +1,25 @@
-// Add Op2 to Op3 then put result into Op1
 INST ADD a:W b:R c:R
-WHERE b <> c
+// Add Op2 to Op3 then put result into Op1
+// WHERE b <> c
 
 // Unsigned right shift Op2 once then put result into Op1
 INST RSH a:W b:R
 
 // Copy RAM value pointed to by Op2 into Op1
 INST LOD a:W a:R
-READS MEM
+// READS MEM
 
 // Copy Op2 into RAM value pointed to by Op1
 INST STR a:R b:R
-WRITES MEM
+// WRITES MEM
 
 // Branch to address specified by Op1 if Op2 is more than or equal to Op3
 INST BGE a:R b:R c:R
-WRITES PC
+// WRITES PC
 
 // Bitwise NOR Op2 and Op3 then put result into Op1
 INST NOR a:W b:R c:R
-WHERE b <> c
+// WHERE b <> c
 
 // Load immediate
 INST IMM a:W b:I

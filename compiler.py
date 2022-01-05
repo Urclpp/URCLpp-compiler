@@ -141,8 +141,14 @@ port_names = {'CPUBUS', 'TEXT', 'NUMB', 'SUPPORTED', 'SPECIAL', 'PROFILE', 'X', 
               'FLOAT', 'FIXED', 'N-SPECIAL', 'ADDR', 'BUS', 'PAGE', 'S-SPECIAL', 'RNG', 'NOTE', 'INSTR', 'NLEG', 'WAIT',
               'NADDR', 'DATA', 'M-SPECIAL', 'UD1', 'UD2', 'UD3', 'UD4', 'UD5', 'UD6', 'UD7', 'UD8', 'UD9', 'UD10',
               'UD11', 'UD12', 'UD13', 'UD14', 'UD15', 'UD16'}
+
+lib_root = "Libraries"
 default_imports = {"inst.core"}
 
+def read_lib(name: str):
+    path = lib_root + "/" + name.replace(".", "/") + ".urcl"
+    with open(path, "r") as f:
+        return f.read()
 
 # ERRORS
 class E(Enum):
@@ -152,8 +158,9 @@ class E(Enum):
     miss_pair = "Missing closing quote {}"
     word_miss = "Keyword expected, found {} instead"
     tok_miss = "Token expected, found {} instead"
+    str = "{}"
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return self.value
 
 
@@ -179,6 +186,9 @@ def main():
     if dest_name is not None:
         dest = open(dest_name, mode="w")
 
+    for lib in default_imports:
+        source = read_lib(lib) + "\n" + source
+
     tokens, lex_errors = Lexer(source).make_tokens()
 
     print("tokens:", file=dest)
@@ -189,14 +199,19 @@ def main():
         print(lex_errors, file=stderr)
         exit(1)
     # parse
-    instructions, parse_errors = Parser(tokens).parse()
-
-    print("program:", file=dest)
-    print(instructions, file=dest)
+    parser = Parser(tokens).parse()
+    
+    print("Instructions:", file=dest)
+    print(parser.instructions, file=dest)
     print("\n", file=dest)
 
-    if len(parse_errors) > 1:
-        print(parse_errors, file=stderr)
+    print("Identifiers:", file=dest)
+    print(parser.ids, file=dest)
+    print("\n", file=dest)
+
+
+    if len(parser.errors) > 1:
+        print(parser.errors, file=stderr)
         exit(1)
 
     return
@@ -459,6 +474,8 @@ class OT(Enum):
     Write = "write"
     Imm = "imm"
     Any = "any"
+    def __repr__(self) -> str:
+        return self.value
 
 op_types = {
     'R': OT.Read,
@@ -469,6 +486,7 @@ op_types = {
 
 @dataclass
 class InstDef(Id):
+    opcode: str
     operands: OrderedDict[str, OT]
 
 @dataclass
@@ -505,22 +523,30 @@ class Parser:
     def error_str(self, msg: str):
         # TODO make this make sense lol
         token = self.peak() if self.has_next() else self.tokens[-1]
-        self.errors.append(Error(E.illegal_char, token.position, token.line, msg))
+        self.errors.append(Error(E.str, token.position, token.line, msg))
 
     def parse(self):
         while self.has_next():
             word = self.next_word()
-            if (word is None):
-                break
+            if (word is None ):
+                if self.has_next():
+                    self.next()
+                continue
 
             if word.value.upper() == 'INST':
                 self.make_inst_def()
+                continue
+            
+            id = self.ids.get(word.value.upper())
+            if isinstance(id, InstDef):
+                self.make_instruction(id)
+                self.i += 1
+                continue
 
-            self.make_instruction()
             # To prevent infinite loop, we should probably check whether a token was found and report an error instead 
+            self.error_str(msg=f"unexpected word {word.value}")
             self.i += 1
-        print(self.ids)
-        return self.instructions, self.errors
+        return self
 
     def make_inst_def(self) -> None:
         self.i += 1
@@ -529,7 +555,7 @@ class Parser:
             self.error(E.tok_miss, self.tokens[-1])
             return
 
-        inst = InstDef(OrderedDict())
+        inst = InstDef(opcode=name.value.upper() ,operands=OrderedDict())
         if self.ids.get(name.value) is not None:
             self.error_str(f"identifier {name} is already defined")
             return
@@ -557,13 +583,12 @@ class Parser:
         
         pass
 
-    def make_instruction(self, recursive: bool = False) -> None:
-        opcode = self.next_word()
-        if opcode is None:
-            return
+    def make_instruction(self, instdef: InstDef, recursive: bool = False) -> None:
+        inst = Instruction(self.tokens[self.i])
+        self.instructions.append(inst)
         # needs to check if number of operands are correct via dict/enum with expected ones
 
-        self.instructions.append(Instruction(opcode))
+
         return
 
     def process_scope(self):  # calls make instructions for the rest of the scope below
