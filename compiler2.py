@@ -59,7 +59,7 @@ CGREEN = '\033[32m'
 CEND = '\033[0m'
 allowed_chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_'
 memory_instructions = {'LOD', 'LLOD', 'STR', 'LSTR', 'CPY'}
-conditional_instructions = {'IF', 'ELIF', 'WHILE'}
+conditional_instructions = {'IF', 'ELIF', 'WHILE', 'BITS'}
 scope_instructions = {'IF', 'FOR', 'WHILE', 'SWITCH'}
 
 multiword_instructions = {'LOD', 'LLOD', 'STR', 'LSTR', 'JMP', 'CPY', 'BGE', 'BRE', 'BNE', 'BRL', 'BRG', 'BLE', 'BZR',
