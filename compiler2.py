@@ -1,43 +1,57 @@
 from timeit import default_timer as timer
-from sys import argv
+from sys import argv, stderr
 from os.path import isfile
 import os
+from typing import Tuple, Union
 script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
 
 usage = """usage: python compiler2 <source_file> <destination_file>"""
+imm_prefix = "imm:"
 
 def main():
     source = argv[1] if len(argv) >= 2 else 'debug_test.urcl'  
     dest = argv[2] if len(argv) >= 3 else None;
     
     output = None
-    # get sample program to debug
-    print(f"reading from: {source}")
-    if isfile(source):
-        with open(source, mode='r') as sf:
-            output = compiler(sf.read().replace("\r", " "))
+    text: str
+    if source.startswith(imm_prefix):
+        text = source[imm_prefix.__len__():]
     else:
-        print(f"couldn't find source file: {source}")
-        print(usage)
-        return
-    
+        if isfile(source):
+            with open(source, mode='r') as sf:
+                text = sf.read()
+        else:
+            print(f"couldn't find source file: {source}")
+            print(usage)
+            exit(1)
+
+    output = compiler(text.replace("\r", " ") + "\n")
+    errors: str = ""
+    out: str = ""
+
+    if type(output) is tuple:
+        out, errors = output
+    else:
+        print(errors, stderr)
+
+        
     if output == None:
-        print("Failed to compile program")
-        print(usage)
-        return
+        print("Failed to compile program", stderr)
+        print(usage, stderr)
+        exit(1)
         
     
     if (dest):
         if isfile(dest):
             with open(dest, mode='w') as df:
-                df.write(output.replace("```", ""))
+                df.write(out)
                 print(f"Saved program to {dest}")
         else:
             print(f"couldn't find destination file: {dest}")
     else:
-        print(output)
+        print(out)
     
-    print(usage)
+    # print(usage)
     
 
 CRED = '\033[91m'
@@ -64,7 +78,7 @@ port_names = {'CPUBUS', 'TEXT', 'NUMB', 'SUPPORTED', 'SPECIAL', 'PROFILE', 'X', 
               'UD11', 'UD12', 'UD13', 'UD14', 'UD15', 'UD16'}
 
 
-def compiler(source):
+def compiler(source) -> Union[str, Tuple[str, str]]:
     start = timer()
     # setup on the program
     source = remove_comments(source)  # removes comments inline or multi line
@@ -74,8 +88,7 @@ def compiler(source):
     lines = label_generator(lines)
 
     instructions = []
-    errors = '```diff\n'
-    print('\nCompiling...')
+    errors = ''
 
     # setup on library
     lib_code = '\nJMP .reserved_endFile\n\n'
@@ -671,12 +684,8 @@ def compiler(source):
     final_program += '.reserved_endFile'
 
     end = timer()
-    print(f'Operation Completed in {latency(start, end)}ms!')
 
-    if errors != "```diff\n":
-        return f'{errors[:-1]}\n```\n```{final_program}```'
-
-    return f'```{final_program}```'
+    return final_program, errors
 
 
 # # # # # # # # # # # # # # # Helper Functions below # # # # # # # # # # # # # # #
