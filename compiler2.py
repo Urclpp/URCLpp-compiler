@@ -441,7 +441,7 @@ def compiler(source) -> Union[str, Tuple[str, str]]:
                                 macros['@UHALF'] = str(-(2 ** (int(operands[1]) // 2)))
                                 macros['@LHALF'] = str((2 ** (int(operands[1]) // 2)) - 1)
                                 bits_head = operands_str
-
+                                instructions.append("BITS " + bits_head)
                         elif opcode == 'MINREG':
                             if 'minreg' in headers:
                                 print(CRED + "Syntax Error: More than 1 'MINREG' header at line " + str(line_nr) + CEND)
@@ -450,6 +450,7 @@ def compiler(source) -> Union[str, Tuple[str, str]]:
                             else:
                                 headers.add('minreg')
                                 macros['@MINREG'] = operands[0]
+                                instructions.append("MINREG " + operands[0])
 
                         elif opcode == 'MINHEAP':
                             if 'minheap' in headers:
@@ -460,6 +461,7 @@ def compiler(source) -> Union[str, Tuple[str, str]]:
                             else:
                                 headers.add('minheap')
                                 macros['@MINHEAP'] = operands[0]
+                                instructions.append("MINHEAP " + operands[0])
 
                         elif opcode == 'RUN':
                             if 'run' in headers:
@@ -469,6 +471,7 @@ def compiler(source) -> Union[str, Tuple[str, str]]:
                             else:
                                 headers.add('run')
                                 macros['@RUN'] = operands[0]
+                                instructions.append("RUN " + operands[0])
 
                         elif opcode == 'MINSTACK':
                             if 'minstack' in headers:
@@ -479,6 +482,7 @@ def compiler(source) -> Union[str, Tuple[str, str]]:
                             else:
                                 headers.add('minstack')
                                 macros['@MINSTACK'] = operands[0]
+                                instructions.append("MINSTACK " + operands[0])
 
                         elif opcode == 'IMPORT':
                             lib_name = operands[0]
@@ -1023,6 +1027,7 @@ def lib_importer(abs_file_path, headers, args, lib_name):
                         print(CRED + "Compatibility Error: Incompatible library function" + CEND)
                         errors += f"-Compatibility Error: Incompatible library function"
                         return errors
+                    
 
                 elif line.startswith('OPS'):
                     lib_headers[1] = True
