@@ -482,7 +482,7 @@ def compiler(source) -> Union[str, Tuple[str, str]]:
 
                         elif opcode == 'IMPORT':
                             lib_name = operands[0]
-                            if not os.path.isdir(script_dir + r'/libraries/' + lib_name):
+                            if not os.path.isdir(script_dir + r'/Libraries/' + lib_name):
                                 print(CRED + "Syntax Error: Unknown library at line " + str(line_nr) + CEND)
                                 errors += f"-Syntax Error: Unknown library at line {str(line_nr)}\n"
 
@@ -639,7 +639,7 @@ def compiler(source) -> Union[str, Tuple[str, str]]:
                     lib = operands[0]
                     lib = lib.replace('.', '/')
                     lib_name = lib.split('/', 1)[0]
-                    rel_path = r"/libraries/" + lib + '.urcl'
+                    rel_path = r"/Libraries/" + lib + '.urcl'
                     abs_file_path = script_dir + rel_path
                     if lib_name not in imported_libraries:
                         print(CRED + "Syntax Error: Library not imported at line " + str(line_nr) + CEND)
