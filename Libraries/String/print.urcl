@@ -1,7 +1,7 @@
 BITS >= 8
 OUTS 0
 OPS 1
-REG 2
+REG 3
 
 LLOD $1 SP 1	// label of input string
 LOD $2 $1

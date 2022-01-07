@@ -651,11 +651,11 @@ def compiler(source) -> Union[str, Tuple[str, str]]:
 
                     if os.path.isfile(abs_file_path):
                         lib = lib.replace('/', '_')
-                        lib_output = 0  # ignore: just so IDE doesnt trigger the var referenced before assignment error
+                        lib_output = lib_importer(abs_file_path, [bits_head, macros['@MINREG']], operands[1], lib)
+                        
                         if lib not in called_lib_functions:
                             called_lib_functions.add(lib)
 
-                            lib_output = lib_importer(abs_file_path, [bits_head, macros['@MINREG']], operands[1], lib)
                             lib_code += lib_output[0] + '\n'  # having an empty line for readability
 
                         instructions.append('\n' + lib_helper(operands[1], lib_output[1], lib, lib_output[2]))
