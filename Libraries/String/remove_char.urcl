@@ -22,7 +22,7 @@ IMM R3 1                // Loop counter
 
 // Main loop
 .remove_char_Loop
-BRE .remove_char_LoopEnd R3 R2      // End loop if index lis equal to size
+BRG .remove_char_LoopEnd R3 R2      // End loop if index is greater to size
 BRE .remove_char_LoopSkip R3 R4     // If our index is the index to be removed, skip this character
 
 .remove_char_LoopSkip__return
@@ -38,6 +38,7 @@ POP	R0
 JMP .remove_char_LoopSkip__return
 
 .remove_char_LoopEnd
+STR R1 R2                           // R2 already holds new string size since it was decremented earlier
 RET
 
 // Saves string to stack in reverse order
