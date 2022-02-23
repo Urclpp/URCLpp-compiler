@@ -9,6 +9,16 @@ Have a good day :)
 ## Prerequisites
 - [Python 3](https://www.python.org/)
 
+## Setup
+Clone the repo and its submodules
+```cmd
+git clone --recurse-submodules
+```
+If you already cloned the repo but want to make sure all submodules are up to date run
+```cmd
+git submodule update --init --recursive
+```
+
 ## Run
 Run the compiler by entering the following command in the terminal
 ```cmd
