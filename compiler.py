@@ -994,28 +994,13 @@ class Parser:
         return end_label, loop_label, self.id_count-1
 
     def do_condition(self, inst: Instruction, label: Token, id):
-        # imma save this error here in case i need it: self.error(E.wrong_op_type, self.peak(), self.peak().type)
-        condition: List[Token] = self.shunting_yard(inst)
-
-        stack = []
-
-        for element in condition:
-            if element.type in op_precedence:
-                if len(stack) < 2:
-                    self.error(E.operand_expected, self.peak(), self.peak())
-                else:
-                    op2 = stack.pop()
-                    op1 = stack.pop()
-
-                    if element.type == 'sym_and':
-                        pass
-                    elif element.type == 'sym_or':
-                        pass
-                    else:
-                        self.cnd_converter()
-
-            else:
-                stack.append(element)
+        operands = self.make_operands(inst)
+        if len(operands) == 1:
+            self.add_inst(Instruction(Token(T.word, -1, -1, 'BRZ'), label, operands[0]))
+        elif len(operands) == 3:
+            cnd = operands[1].type
+            if operands[1] == '':
+                pass
 
         self.add_inst(Instruction(Token(T.label, -1, -1, f'.reserved_body{id}')))
         return
@@ -1053,14 +1038,6 @@ class Parser:
             self.error(E.word_miss, self.peak(), 'nothing')
         self.skip_line()
         return queue
-
-    def cnd_inverter(self, op, next_count=0, inverting=False):
-
-        return
-
-    def cnd_converter(self, next_count=0, inverting=False):
-
-        return
 
     def next_word(self):
         while self.has_next() and self.tokens[self.i].type != T.word:
