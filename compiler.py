@@ -1,4 +1,4 @@
-from os.path import isfile
+from os.path import isfile, isdir, dirname
 from sys import argv, stdout, stderr
 from enum import Enum
 from typing import List, OrderedDict
@@ -39,7 +39,7 @@ class T(Enum):
 
 
 # CONSTANTS
-charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_1234567890'
+charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_1234567890.'
 digits = '1234567890'
 bases = 'oOxXbB'
 indentation = ' \t\n'
@@ -157,14 +157,8 @@ port_names = {'CPUBUS', 'TEXT', 'NUMB', 'SUPPORTED', 'SPECIAL', 'PROFILE', 'X', 
               'NADDR', 'DATA', 'M-SPECIAL', 'UD1', 'UD2', 'UD3', 'UD4', 'UD5', 'UD6', 'UD7', 'UD8', 'UD9', 'UD10',
               'UD11', 'UD12', 'UD13', 'UD14', 'UD15', 'UD16'}
 
-lib_root = "Libraries"
-default_imports = {"inst.core", "inst.io", "inst.basic", "inst.complex"}
-
-
-def read_lib(name: str):
-    path = lib_root + "/" + name.replace(".", "/") + ".urcl"
-    with open(path, "r") as f:
-        return f.read()
+lib_root = 'urclpp-libraries'
+default_imports = set()  # default_imports = {"inst.core", "inst.io", "inst.basic", "inst.complex"}
 
 
 # ERRORS
@@ -172,6 +166,8 @@ class E(Enum):
     illegal_char = "Illegal Char '{}'"
     invalid_char = "Invalid Character {}"
     unk_port = "Unknown port name '{}'"
+    unk_library = "Unknown library name '{}'"
+    unk_function = "Unknown library function '{}'"
     miss_pair = "Missing closing quote {}"
     word_miss = "Keyword expected, found {} instead"
     sym_miss = "Symbol '{}' expected"
@@ -608,7 +604,7 @@ class Parser:
             self.error(E.tok_miss, self.tokens[-1])
             return
 
-        inst = InstDef(opcode=name.value.upper(), operands=OrderedDict())
+        inst = InstDef(opcode=name.value.upper(), operands=OrderedDict[None])
         if self.ids.get(name.value) is not None:
             self.error_str(f"identifier {name} is already defined")
             return
@@ -967,9 +963,27 @@ class Parser:
         return
 
     def make_lcal(self) -> None:
+        inst = Instruction(Token(T.word, self.peak().position, self.peak().line, 'LCAL'))
         self.advance()
+        lib = self.next_operand(inst)
+        if lib.type != T.word:
+            return
+        lib_file = read_lib(lib.value)
+        if lib_file is not None:
+            pass
 
         return
+
+    def read_lib(self, name: str):
+        path = lib_root + "/" + name.replace(".", "/") + ".urcl"
+        if not os.path.isdir(path):
+            self.error(E.unk_library, self.peak(), name.split('.')[0])
+            return
+        if not os.path.isfile(path):
+            self.error(E.unk_function, self.peak(), name.split('.')[1])
+            return
+        with open(path, "r") as f:
+            return f.read()
 
     def make_define(self) -> None:
         inst = Instruction(Token(T.word, self.peak().position, self.peak().line, 'DEFINE'))
@@ -995,14 +1009,24 @@ class Parser:
 
     def do_condition(self, inst: Instruction, label: Token, id):
         operands = self.make_operands(inst)
+        self.skip_line()
         if len(operands) == 1:
             self.add_inst(Instruction(Token(T.word, -1, -1, 'BRZ'), label, operands[0]))
         elif len(operands) == 3:
             cnd = operands[1].type
-            if operands[1] == '':
-                pass
-
-        self.add_inst(Instruction(Token(T.label, -1, -1, f'.reserved_body{id}')))
+            comparrison = {
+                T.sym_lt: Instruction(Token(T.word, -1, -1, 'BGE'), label, operands[0], operands[2]),
+                T.sym_gt: Instruction(Token(T.word, -1, -1, 'BLE'), label, operands[0], operands[2]),
+                T.sym_geq: Instruction(Token(T.word, -1, -1, 'BRL'), label, operands[0], operands[2]),
+                T.sym_leq: Instruction(Token(T.word, -1, -1, 'BRG'), label, operands[0], operands[2]),
+                T.sym_dif: Instruction(Token(T.word, -1, -1, 'BRE'), label, operands[0], operands[2]),
+                T.sym_equ: Instruction(Token(T.word, -1, -1, 'BNE'), label, operands[0], operands[2]),
+            }
+            if cnd not in comparrison:
+                return  # wrong condition or smt
+            else:
+                self.add_inst(comparrison[cnd])
+        # self.add_inst(Instruction(Token(T.label, -1, -1, f'.reserved_body{id}')))
         return
 
     def shunting_yard(self, inst: Instruction) -> List[Token]:
