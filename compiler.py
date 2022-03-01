@@ -17,7 +17,6 @@ class T(Enum):
     relative = 'opr_rel'
     label = 'opr_lab'
     macro = 'opr_mac'
-    pointer = 'opr_poi'
     char = 'opr_cha'
     string = 'opr_str'
     sym_lpa = 'sym_lpa'
@@ -69,88 +68,6 @@ op_precedence = {
     "sym_or": 3,
     "sym_lpa": 5
 }
-operand_num = {  # number of operand a function expects
-    # CORE
-    'ADD': 3,
-    'RSH': 2,
-    'LOD': 2,
-    'STR': 2,
-    'BGE': 3,
-    'NOR': 3,
-    'IMM': 2,
-    # I/O
-    'IN': 2,
-    'OUT': 2,
-    # BASIC
-    'SUB': 3,
-    'JMP': 1,
-    'MOV': 2,
-    'NOP': 0,
-    'LSH': 2,
-    'INC': 2,
-    'DEC': 2,
-    'NEG': 2,
-    'AND': 3,
-    'OR': 3,
-    'NOT': 2,
-    'XOR': 3,
-    'XNOR': 3,
-    'NAND': 3,
-    'BRE': 3,
-    'BNE': 3,
-    'BRL': 3,
-    'BRG': 3,
-    'BLE': 3,
-    'BZR': 2,
-    'BNZ': 2,
-    'BRN': 2,
-    'BRP': 2,
-    'BEV': 2,
-    'BOD': 2,
-    'PSH': 2,
-    'POP': 2,
-    'CAL': 2,
-    'RET': 0,
-    'HLT': 0,
-    'CPY': 2,
-    'BRC': 3,
-    'BNC': 3,
-    # COMPLEX
-    'MLT': 3,
-    'DIV': 3,
-    'MOD': 3,
-    'BSR': 3,
-    'BSL': 3,
-    'SRS': 2,
-    'BSS': 3,
-    'SETE': 3,
-    'SETNE': 3,
-    'SETL': 3,
-    'SETG': 3,
-    'SETLE': 3,
-    'SETGE': 3,
-    'SETC': 3,
-    'SETNC': 3,
-    'LLOD': 3,
-    'LSTR': 3,
-    # URCLpp exclusive
-    'END': 0,
-    'EXIT': 0,
-    'SKIP': 0,
-    'IF': 1,
-    'ELIF': 1,
-    'ELSE': 0,
-    'FOR': 2,
-    'WHILE': 1,
-    'SWITCH': 1,
-    'CASE': 1,
-    'DEFAULT': 0,
-    'LCAL': 2,
-    '@DEFINE': 2,
-    'IMPORT': 1,
-    # Directives (not supported atm)
-    'DW': 1
-}
 port_names = {'CPUBUS', 'TEXT', 'NUMB', 'SUPPORTED', 'SPECIAL', 'PROFILE', 'X', 'Y', 'COLOR', 'BUFFER', 'G-SPECIAL',
               'ASCII', 'CHAR5', 'CHAR6', 'ASCII7', 'UTF8', 'UTF16', 'UTF32', 'T-SPECIAL', 'INT', 'UINT', 'BIN', 'HEX',
               'FLOAT', 'FIXED', 'N-SPECIAL', 'ADDR', 'BUS', 'PAGE', 'S-SPECIAL', 'RNG', 'NOTE', 'INSTR', 'NLEG', 'WAIT',
@@ -196,7 +113,7 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None  
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''ADD (LSH R1)[4][]'''
+    source = r'''ADD R1 (INC R1)[] R2'''
     
     if source_name is not None:
         if isfile(source_name):
@@ -293,7 +210,7 @@ class Lexer:
                         self.inline_comment()
                     elif self.has_next() and self.p[self.i] == '*':
                         self.multi_line_comment()
-                    else:  # you got your hopes high but it was just an illegal char :/
+                    else:  # you got your hopes high, but it was just an illegal char :/
                         self.error(E.illegal_char, '/')
 
                 elif self.p[self.i] in symbols:
@@ -317,9 +234,6 @@ class Lexer:
             else:
                 self.token(symbols['>'])
 
-        elif self.p[self.i] == '[' and self.has_next(-1) and self.p[self.i-1] != ' ':
-            self.make_mem_index()
-
         elif self.p[self.i] == '&' and self.has_next() and self.p[self.i+1] == '&':
             self.advance(2)
             self.token(T.sym_and)
@@ -333,23 +247,23 @@ class Lexer:
 
     def make_operand(self, indexed: bool = False) -> None:
         if self.p[self.i] in digits + '+-':  # immediate value
-            self.token(T.imm, str(self.make_num(indexed)))
+            self.token(T.imm, str(self.make_num()))
 
         elif self.p[self.i] in charset:  # opcode or other words
-            self.token(T.word, self.make_word(indexed))
+            self.token(T.word, self.make_word())
 
         else:  # format: op_type:<data>
             prefix = self.p[self.i]
             self.advance()
             if prefix in 'rR$':  # register
                 if self.p[self.i] not in '+-':
-                    self.token(T.reg, 'R' + str(self.make_num(indexed)))
+                    self.token(T.reg, 'R' + str(self.make_num()))
                 else:
                     self.error(E.illegal_char, self.p[self.i])
 
             elif prefix in 'mM#':  # memory
                 if self.p[self.i] not in '+-':
-                    self.token(T.mem, 'M' + str(self.make_num(indexed)))
+                    self.token(T.mem, 'M' + str(self.make_num()))
                 else:
                     self.error(E.illegal_char, self.p[self.i])
 
@@ -364,23 +278,20 @@ class Lexer:
                         self.error(E.unk_port, name)
 
             elif prefix == '~':  # relative
-                self.token(T.relative, prefix + str(self.make_num(indexed)))
+                self.token(T.relative, prefix + str(self.make_num()))
 
             elif prefix == '.':  # label
-                self.token(T.label, prefix + self.make_word(indexed))
+                self.token(T.label, prefix + self.make_word())
 
             elif prefix == '@':  # macro
-                self.token(T.macro, prefix + self.make_word(indexed))
+                self.token(T.macro, prefix + self.make_word())
 
             elif prefix == "'":  # character
                 char = self.make_str("'")
-                # TODO check invalid char
-                # if char == invalid_char:
-                #     pass
                 if len(char) == 3:  # char = "'<char>'"
                     self.token(T.char, char)
                 else:
-                    self.error(E.illegal_char, char)
+                    self.error(E.invalid_char, char)
 
             elif prefix == '"':
                 self.token(T.string, self.make_str('"'))
@@ -389,10 +300,7 @@ class Lexer:
             #    self.token()
 
             else:  # unknown symbol
-                if indexed and self.p[self.i] == ']':
-                    self.advance()
-                else:
-                    self.error(E.illegal_char, self.p[self.i-1])
+                self.error(E.illegal_char, self.p[self.i-1])
 
         if self.has_next() and self.p[self.i] == '\n':
             self.new_line()
@@ -409,70 +317,39 @@ class Lexer:
             self.new_line()
             self.token(T.newLine)
             self.error(E.miss_pair, char)
-            # TODO return invalid char
-            raise ValueError("invalid char")
-            # return invalid_char
+            # raise ValueError("invalid char")
+            return word + "'"
         else:
             word += self.p[self.i]
             self.advance()
             return word
 
-    def make_word(self, indexed: bool = False) -> str:
+    def make_word(self) -> str:
         word = self.p[self.i]
         self.advance()
         while self.has_next() and self.p[self.i] not in indentation:
-            if self.p[self.i] == '[':  # has pointer after the operand
-                self.make_mem_index()
-                return word
-            elif indexed and self.p[self.i] == ']':
-                self.advance()
-                return word
             if self.p[self.i] in symbols:
-                return word
-            if self.p[self.i] not in charset:
+                break
+            elif self.p[self.i] not in charset:
                 self.error(E.illegal_char, self.p[self.i])
             else:
                 word += self.p[self.i]
             self.advance()
-
         return word
 
-    def make_num(self, indexed: bool = False) -> int:
+    def make_num(self) -> int:
         if self.p[self.i] == ' ':
             return 0
         num = ''
         while self.has_next() and self.p[self.i] not in indentation:
-            if self.p[self.i] == '[':  # has pointer after the operand
-                self.make_mem_index()
-                return int(num, 0)
-            elif indexed and self.p[self.i] == ']':
-                self.advance()
-                return int(num, 0)
-
-            if self.p[self.i] not in digits + bases:
+            if self.p[self.i] in symbols:
+                break
+            elif self.p[self.i] not in digits + bases:
                 self.error(E.illegal_char, self.p[self.i])
             else:
                 num += self.p[self.i]
             self.advance()
-
         return int(num, 0)
-
-    def make_mem_index(self) -> None:
-        self.advance()
-        while self.p[self.i] == ' ':
-            self.advance()
-        if self.p[self.i] == ']':
-            self.token(T.pointer)
-            self.token(T.imm, '0')
-            self.advance()
-        else:
-            self.make_operand(True)     # create and push to output new token
-            index = self.output.pop()   # retrieve that token generated to switch orders
-            self.token(T.pointer)
-            self.output.append(index)
-
-        if self.has_next() and self.p[self.i] == '[':
-            self.make_mem_index()
 
     def multi_line_comment(self) -> None:
         while self.has_next(1) and (self.p[self.i] != '*' or self.p[self.i + 1] != '/'):
@@ -635,7 +512,7 @@ class Parser:
     # loop[0] = final statement for skip
     # loop[1] = start_label
     # loop[2] = end_label
-    def make_instruction(self, recursive: bool = False, loop=None) -> None:
+    def make_instruction(self, recursive: bool = False, loop=None):
         inst = Instruction(self.tokens[self.i])
         operands = self.make_operands(inst, recursive=recursive)
         for operand, (name, op) in zip(operands, instdef.operands.items()):
@@ -648,7 +525,15 @@ class Parser:
 
         # # # # # # # # # # # # not final # # # # # # # # # # # #
 
-        if self.peak().type == T.word:
+        if recursive:
+
+            # TODO: do this
+
+            inst.operands = operands
+            self.instructions.append(inst)
+            return inst.operands[0]
+
+        elif self.peak().type == T.word:
             if self.peak().value.upper() == 'EXIT':
                 if loop is None:
                     self.error(E.outside_loop, self.peak(), self.peak())
@@ -756,20 +641,23 @@ class Parser:
         if self.has_next() and self.peak() != T.newLine:
             type = self.peak().type
             value = self.peak().value
+            operand = None
 
             if type == T.sym_lpa:
                 self.advance()
-                self.make_instruction(recursive=True)
+                operand = self.make_instruction(recursive=True)
 
             elif type == T.macro:
                 if value in self.macros:
-                    return self.macros[value]
+                    operand = self.macros[value]
                 else:
-                    if inst.opcode.upper() != 'DEFINE' or 'DEFINE' != self.tokens[self.i - 1].value: # checking if not the 1st op of DEFINE
+                    if inst.opcode.upper() != 'DEFINE' or 'DEFINE' != self.tokens[self.i - 1].value:  # checking if not the 1st op of DEFINE
                         self.error(E.undefined_macro, self.peak(), self.peak())
 
-            if self.tokens[self.i].type == T.pointer:
-                self.advance()
+            self.advance()
+            if type == T.sym_lbr:
+                self.make_mem_index(inst, operand)
+
                 '''if self.has_next() and self.tokens[self.i] != T.newLine:  # needs tweaking if we want to use tmp regs
                     if len(inst.operands) > 0 and inst.operands[0] is not None:
                         add = Instruction(
@@ -782,7 +670,30 @@ class Parser:
                     else:  # TODO: decode inst to save on a tmp reg, and load that reg to op1
                         pass'''
 
-        return False
+            return operand
+
+    def make_mem_index(self, inst: Instruction, operand):
+        self.advance()
+        if self.has_next() and self.peak() != T.newLine:
+            temp = self.get_tmp()
+            self.ret_tmp(temp)
+            if len(inst.operands) == 0:  # no operands yet -> this is the first operand
+                pass  # need to check if the 1st op is address or reg write
+            else:
+
+                if self.peak().type == T.sym_rbr:
+                    offset = 0
+                else:
+                    offset = self.next_operand(inst)
+                self.skip_until(T.sym_rbr)
+
+                if offset.value != 0:
+                    self.add_inst(Instruction(Token(T.word, -1, -1, 'ADD'), temp, operand, offset))
+                self.add_inst(Instruction(Token(T.word, -1, -1, 'LOD'), temp, temp))
+                self.advance()
+            if self.peak().type == T.sym_lbr:
+                self.make_mem_index(inst, temp)
+        return
 
     def make_switch(self) -> None:
         inst = Instruction(Token(T.word, self.peak().position, self.peak().line, 'SWITCH'))
