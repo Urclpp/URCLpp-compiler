@@ -114,7 +114,7 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None  
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''ADD R1 R1[5][6] R2'''
+    source = r'''ADD R1 (INC (LSH R2))[6][] R3'''
     
     if source_name is not None:
         if isfile(source_name):
@@ -536,10 +536,12 @@ class Parser:
         opcode_str = opcode.value.upper()
         if recursive:
             inst = Instruction(opcode)
-            self.advance()
+            tmp = self.get_tmp()
+            self.ret_tmp(tmp)
+            inst.operands.append(tmp)
             self.make_operands(inst, recursive=recursive)
             self.instructions.append(inst)
-            return inst.operands[0]
+            return tmp
 
         if opcode_str == 'EXIT':
             if loop is None:
@@ -580,7 +582,6 @@ class Parser:
         #    self.make_inst()
         else:
             inst = Instruction(opcode)
-            self.advance()
             self.make_operands(inst)
             self.instructions.append(inst)
         return
@@ -670,10 +671,7 @@ class Parser:
 
             else:
                 operand = self.peak()
-                if operand is not None:
-                    inst.operands.append(operand)
-
-            self.advance()
+                self.advance()
             if self.has_next() and self.peak().type == T.sym_lbr:
                 temp = self.make_mem_index(inst, operand)
                 if temp is not None:
@@ -689,6 +687,8 @@ class Parser:
 
                     else:  # TODO: decode inst to save on a tmp reg, and load that reg to op1
                         pass'''
+            else:
+                inst.operands.append(operand)
 
             return operand
 
