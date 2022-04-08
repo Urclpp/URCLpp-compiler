@@ -116,7 +116,7 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None  
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''ADD R1 (INC R2)[] R3'''
+    source = r'''ADD R1 (INC (LSH R2))[] (RSH R3)[]'''
     
     if source_name is not None:
         if isfile(source_name):
@@ -445,7 +445,7 @@ class Parser:
         self.instructions: list[Instruction] = []
         self.errors: list[Error] = []
 
-        self.temp: dict[Token] = {token(T.reg, 'tmp'): True}
+        self.temp: dict[Token] = {token(T.reg, 'tmp'): True, token(T.reg, 'tmp2'): True}
         self.id_count = 0
         self.macros: dict[Token] = {}
         self.labels: set(str) = set()
@@ -453,7 +453,7 @@ class Parser:
         self.i = 0
 
     def error(self, error: E, tok: Token, *args):
-        self.errors.append(Error(error, tok.position, token.line, *args))
+        self.errors.append(Error(error, tok.position, tok.line, *args))
 
     def error_str(self, msg: str):  # this function can be replaced with the previous above
         # TODO make this make sense lol
@@ -565,11 +565,12 @@ class Parser:
 
         # # # # # # # # # # # # not final # # # # # # # # # # # #
 
+        temps: Dict[Token] = self.temp.copy()   # save the current state of the temps
+
         opcode_str = opcode.value.upper()
         if recursive:
             inst = Instruction(opcode)
             tmp = self.get_tmp()
-            self.ret_tmp(tmp)
             inst.operands.append(tmp)
             self.make_operands(inst, recursive=recursive)
             self.instructions.append(inst)
@@ -630,6 +631,8 @@ class Parser:
             inst = Instruction(opcode)
             self.make_operands(inst)
             self.instructions.append(inst)
+
+        self.temp = temps   # restore that same information
         return
 
     def make_operands(self, inst: Instruction, recursive: bool = False) -> List[Operand]:
@@ -651,6 +654,14 @@ class Parser:
             if type == T.sym_lpa:
                 self.advance()
                 operand = self.make_instruction(recursive=True)
+                if self.has_next() and self.peak().type == T.sym_lbr:
+                    if operand is not None:
+                        self.make_mem_index(inst, operand, operand)
+                        inst.operands.append(operand)
+                else:
+                    inst.operands.append(operand)
+                self.set_tmp(operand)
+                return operand
 
             elif type == T.macro:
                 if value in self.macros:
@@ -669,10 +680,11 @@ class Parser:
                 operand = self.peak()
                 self.advance()
             if self.has_next() and self.peak().type == T.sym_lbr:
-                temp = self.make_mem_index(inst, operand)
+                temp = self.get_tmp()
                 if temp is not None:
+                    self.make_mem_index(inst, operand, temp)
+                    self.ret_tmp(temp)
                     inst.operands.append(temp)
-
             else:
                 inst.operands.append(operand)
 
@@ -707,10 +719,12 @@ class Parser:
     def get_tmp(self):
         for tmp in self.temp:
             if self.temp[tmp]:
-                self.temp[tmp] = False
                 return tmp
         self.error(E.no_tmp, self.peak())
         return
+
+    def set_tmp(self, tmp: Token):
+        self.temp[tmp] = False
 
     def ret_tmp(self, tmp: Token):
         self.temp[tmp] = True
@@ -737,13 +751,9 @@ class Parser:
             self.error(E.word_miss, self.tokens[self.i-1], 'nothing')
             return
 
-    def make_mem_index(self, inst: Instruction, operand):
+    def make_mem_index(self, inst: Instruction, operand, temp):
         self.advance()
         if self.has_next() and self.peak().type != T.newLine:
-            temp = self.get_tmp()
-            if temp is None:
-                return
-            self.ret_tmp(temp)
             if len(inst.operands) == 0:  # no operands yet -> this is the first operand
                 pass  # need to check if the 1st op is address or reg write
             else:
@@ -761,8 +771,9 @@ class Parser:
                     self.add_inst(Instruction(token(T.word, 'LOD'), temp, operand))
 
             if self.has_next() and self.peak().type == T.sym_lbr:
-                self.make_mem_index(inst, temp)
-            return temp
+                self.make_mem_index(inst, temp, temp)
+            self.set_tmp(temp)
+            return
 
     def make_switch(self) -> None:
         inst = Instruction(Token(T.word, self.peak().position, self.peak().line, 'SWITCH'))
