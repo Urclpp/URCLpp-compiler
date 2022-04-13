@@ -22,16 +22,16 @@ class T(Enum):
     sym_lpa = 'sym_lpa'
     sym_rpa = 'sym_rpa'
     sym_lbr = 'sym_lbr'
-    sym_rbr = 'sym_rbr',
-    sym_col = "sym_col",
-    sym_gt = "sym_gt",
-    sym_lt = "sym_lt",
-    sym_geq = "sym_geq",
-    sym_leq = "sum_leq",
-    sym_equ = "sym_equ",
-    sym_dif = "sym_dif",
-    sym_and = "sym_and",
-    sym_or = "sym_or",
+    sym_rbr = 'sym_rbr'
+    sym_col = "sym_col"
+    sym_gt = "sym_gt"
+    sym_lt = "sym_lt"
+    sym_geq = "sym_geq"
+    sym_leq = "sum_leq"
+    sym_equ = "sym_equ"
+    sym_dif = "sym_dif"
+    sym_and = "sym_and"
+    sym_or = "sym_or"
 
     def __repr__(self) -> str:
         return self.value
@@ -87,6 +87,7 @@ class E(Enum):
     unk_port = "Unknown port name '{}'"
     unk_library = "Unknown library name '{}'"
     unk_function = "Unknown library function '{}'"
+    unk_instruction = "Unknown instruction name '{}'"
     miss_pair = "Missing closing quote {}"
     word_miss = "Keyword expected, found {} instead"
     sym_miss = "Symbol '{}' expected"
@@ -94,7 +95,7 @@ class E(Enum):
     operand_expected = "Operand expected, found {} instead"
     wrong_op_num = "Instruction {} takes {} operands but got {}"
     invalid_op_type = "Invalid operand type '{}' for Instruction {}"
-    wrong_op_type = "Wrong operand type '{}' used"
+    wrong_op_type = "Wrong operand type '{}' used, '{}' expected"
     duplicate_case = "Duplicate Case '{}' used"
     duplicate_default = "Duplicate Default used"
     duplicate_macro = 'Duplicate macro "{}" used'
@@ -116,7 +117,7 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None  
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''ADD R1 (INC (LSH R2))[] (RSH R3)[]'''
+    source = r'''ADD R1 R2[] R3'''
     
     if source_name is not None:
         if isfile(source_name):
@@ -163,7 +164,7 @@ def main():
 
 class Token:
     def __init__(self, type: T, pos: int, line: int, value: str = "") -> None:
-        self.type = type
+        self.type: T = type
         self.position = pos
         self.line = line
         self.value = value
@@ -252,25 +253,25 @@ class Lexer:
         if self.p[self.i] in digits + '+-':  # immediate value
             self.token(T.imm, str(self.make_num()))
 
-        elif self.p[self.i] in charset:  # opcode or other words
-            self.token(T.word, self.make_word())
-
         else:  # format: op_type:<data>
             prefix = self.p[self.i]
-            self.advance()
+
             if prefix in 'rR$':  # register
+                self.advance()
                 if self.p[self.i] not in '+-':
                     self.token(T.reg, 'R' + str(self.make_num()))
                 else:
                     self.error(E.illegal_char, self.p[self.i])
 
             elif prefix in 'mM#':  # memory
+                self.advance()
                 if self.p[self.i] not in '+-':
                     self.token(T.mem, 'M' + str(self.make_num()))
                 else:
                     self.error(E.illegal_char, self.p[self.i])
 
             elif prefix == '%':  # port
+                self.advance()
                 if self.p[self.i] in digits:
                     self.token(T.port, '%' + str(self.make_num()))
                 else:
@@ -281,15 +282,19 @@ class Lexer:
                         self.error(E.unk_port, name)
 
             elif prefix == '~':  # relative
+                self.advance()
                 self.token(T.relative, prefix + str(self.make_num()))
 
             elif prefix == '.':  # label
+                self.advance()
                 self.token(T.label, prefix + self.make_word())
 
             elif prefix == '@':  # macro
+                self.advance()
                 self.token(T.macro, prefix + self.make_word())
 
             elif prefix == "'":  # character
+                self.advance()
                 char = self.make_str("'")
                 if len(char) == 3:  # char = "'<char>'"
                     self.token(T.char, char)
@@ -297,7 +302,11 @@ class Lexer:
                     self.error(E.invalid_char, char)
 
             elif prefix == '"':
+                self.advance()
                 self.token(T.string, self.make_str('"'))
+
+            elif self.p[self.i] in charset:  # opcode or other words
+                self.token(T.word, self.make_word())
 
             # elif prefix == '':
             #    self.token()
@@ -380,43 +389,50 @@ class Lexer:
         return len(self.p) > self.i + i >= 0
 
 
-@dataclass
-class Id:
-    pass
+class OpType(Enum):
+    R = 'Reg'
+    I = 'Imm'
+    W = 'Write'
+    M = 'Mem'
+    A = 'Any'
+    P = 'IO'
+
+    def __repr__(self) -> str:
+        return self.value
 
 
-class OpPrim(Enum):
-    Reg = "reg"
-    Imm = "imm"
+class InstDef:
+    def __init__(self, opcode: Token, *args: Token) -> None:
+        self.opcode = opcode
+        self.operands: list[OpType] = []
+        for op in args:
+            self.operands.append(OpType[op])    # pre: check dont pass a None or an invalid key. need to check b4
+
+    def __repr__(self) -> str:
+        out = f'<INSTDEF {self.opcode}'
+        for op in self.operands:
+            out += ' ' + str(op)
+        return out + '>'
 
 
-op_prims = {
-    "R": [OpPrim.Reg],
-    "I": [OpPrim.Imm],
-    "A": [OpPrim.Imm, OpPrim.Reg]
+operand1_type = {  # used for the first operand
+    T.label: OpType.M,
+    T.reg: OpType.W,
+    T.imm: OpType.M,
+    T.char: OpType.I,
+    T.mem: OpType.M,
+    T.port: OpType.P,
+    T.relative: OpType.M,
 }
-
-
-@dataclass
-class OpDef:
-    prims: List[OpPrim]
-
-
-@dataclass
-class InstDef(Id):
-    opcode: str
-    operands: OrderedDict[str, OpDef]
-
-
-@dataclass
-class LabelDef(Id):
-    location: int
-
-
-@dataclass
-class Operand:
-    prim: OpPrim
-    value: int
+operand_type = {
+    T.label: OpType.I,
+    T.reg: OpType.R,
+    T.imm: OpType.I,
+    T.char: OpType.I,
+    T.mem: OpType.I,
+    T.port: OpType.I,
+    T.relative: OpType.I,
+}
 
 
 class Instruction:
@@ -443,6 +459,9 @@ class Parser:
         self.tokens: list[Token] = tokens
         self.ids: dict[str, Id] = {}
         self.instructions: list[Instruction] = []
+        self.inst_def: dict[InstDef] = {
+            'ADD': InstDef('ADD', 'W', 'R', 'R')
+        }
         self.errors: list[Error] = []
 
         self.temp: dict[Token] = {token(T.reg, 'tmp'): True, token(T.reg, 'tmp2'): True}
@@ -455,13 +474,12 @@ class Parser:
     def error(self, error: E, tok: Token, *args):
         self.errors.append(Error(error, tok.position, tok.line, *args))
 
-    def error_str(self, msg: str):  # this function can be replaced with the previous above
-        # TODO make this make sense lol
-        tok = self.peak() if self.has_next() else self.tokens[-1]
-        self.errors.append(Error(E.str, tok.position, token.line, msg))
-
     def add_inst(self, inst: Instruction) -> None:
         self.instructions.append(inst)
+
+    def make_inst_def(self):
+        # TODO
+        return
 
     def get_lib_headers(self):
         headers = {
@@ -505,45 +523,7 @@ class Parser:
                 continue
 
             self.make_instruction()
-
-            # To prevent infinite loop, we should probably check whether a token was found and report an error instead
-            # self.error_str(msg=f"unexpected word {word.value}")
-            # self.advance()
         return self
-
-    def make_inst_def(self) -> None:
-        self.advance()
-        name = self.next_word()
-        if name is None:
-            self.error(E.tok_miss, self.tokens[-1])
-            return
-
-        inst = InstDef(opcode=name.value.upper(), operands=OrderedDict[None])
-        if self.ids.get(name.value) is not None:
-            self.error_str(f"identifier {name} is already defined")
-            return
-        self.ids[name.value] = inst
-
-        self.advance()
-        while self.has_next() and self.tokens[self.i].type is not T.newLine:
-            op_name = self.next()
-            if op_name is None:
-                self.error_str(msg="missing operant name")
-                self.skip_line()
-                return
-            if not self.has_next() or self.next().type is not T.sym_col:
-                self.error_str(msg="missing colon")
-                self.skip_line()
-                return
-
-            prim_str = self.next()
-            prim = None if prim_str is None else op_prims.get(prim_str.value)
-            if prim is None:
-                self.error_str(msg="missing type (R, I or A)")
-                return
-            inst.operands[op_name.value] = OpDef(prims=prim)
-
-        pass
 
     # loop saves the context of the nearest outer loop
     # loop[0] = final statement for skip
@@ -554,14 +534,6 @@ class Parser:
         self.advance()
         if not self.has_next():
             return
-
-        """for operand, (name, op) in zip(operands, instdef.operands.items()):
-            if operand.prim not in op.prims:
-                self.error_str(msg=f"Operant {name} of Instruction {instdef.opcode} must be one of {op.prims}")
-
-        if len(operands) != len(instdef.operands):
-            self.error_str(
-                msg=f"Instruction {instdef.opcode} takes {len(instdef.operands)} operands but got {len(operands)}")"""
 
         # # # # # # # # # # # # not final # # # # # # # # # # # #
 
@@ -632,10 +604,36 @@ class Parser:
             self.make_operands(inst)
             self.instructions.append(inst)
 
+            # self.check_instruction(inst)
+
         self.temp = temps   # restore that same information
         return
 
-    def make_operands(self, inst: Instruction, recursive: bool = False) -> List[Operand]:
+    def check_instruction(self, inst: Instruction) -> None:
+        try:
+            inst_def: InstDef = self.inst_def[inst.opcode.value]
+        except KeyError:
+            self.error(E.unk_instruction, inst.opcode)
+            return
+        if len(inst.operands) > len(inst_def.operands):     # we will ignore extra operands, but provide an error
+            self.error(E.wrong_op_num, inst.opcode, inst.opcode, len(inst_def.operands), len(inst.operands))
+        if len(inst.operands) == 0:
+            return
+
+        if operand1_type[inst.operands[0].type] != inst_def.operands[0]:
+            self.error(E.wrong_op_type, inst.operands[0], inst.operands[0], inst_def.operands[0])
+
+        if len(inst.operands) == len(inst_def.operands)-1:  # operand shorthands
+            inst.operands.insert(1, inst.operands[0])
+
+        # prolly this will change in the future to accommodate for optional operands
+        for op, op_def in zip(inst.operands[1:], inst_def.operands[1:]):
+            if operand_type[op.type] != op_def:
+                self.error(E.wrong_op_type, op, op, op_def)
+
+        return
+
+    def make_operands(self, inst: Instruction, recursive: bool = False) -> List[Token]:
         if recursive:
             while self.has_next() and self.peak().type != T.sym_rpa:
                 self.next_operand(inst)
@@ -755,7 +753,11 @@ class Parser:
         self.advance()
         if self.has_next() and self.peak().type != T.newLine:
             if len(inst.operands) == 0:  # no operands yet -> this is the first operand
-                pass  # need to check if the 1st op is address or reg write
+                if operand.type in operand1_type:
+                    if operand1_type[operand.type] == OpType.W:
+                        pass
+                    elif operand1_type[operand.type] == OpType.M:
+                        pass
             else:
                 if self.peak().type == T.sym_rbr:
                     offset = token(T.imm, '0')
@@ -1013,8 +1015,8 @@ class Parser:
         with open(path, "r") as f:
             return f.read()
 
-    def make_import(self):  # atm import isnt needed for anything
-
+    def make_import(self):
+        # TODO
         return
 
     def make_define(self) -> None:
