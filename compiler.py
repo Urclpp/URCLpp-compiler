@@ -117,7 +117,10 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None  
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''ADD R1 R2[] R3'''
+    source = r'''
+IF R1 == R2
+  INC R1 R1
+END'''
     
     if source_name is not None:
         if isfile(source_name):
@@ -181,7 +184,7 @@ class Error:
         self.args = args
 
     def __repr__(self) -> str:
-        return f'{self.error.value.format(self.args)}, at {self.index} at line {self.line}'
+        return f'{self.error.value.format(self.args)}, at char {self.index} at line {self.line}'
 
 
 class Lexer:
@@ -217,7 +220,7 @@ class Lexer:
                     else:  # you got your hopes high, but it was just an illegal char :/
                         self.error(E.illegal_char, '/')
 
-                elif self.p[self.i] in symbols:
+                elif self.p[self.i] in symbols or self.p[self.i] in {'=', '!'}:    # gotta check for first char of all
                     self.make_symbol()
                     self.advance()
                 else:
@@ -229,25 +232,44 @@ class Lexer:
         if self.p[self.i] == '<':
             if self.has_next() and self.p[self.i] == '=':
                 self.token(symbols['<='])
+                self.advance()
             else:
                 self.token(symbols['<'])
 
         elif self.p[self.i] == '>':
             if self.has_next() and self.p[self.i] == '=':
                 self.token(symbols['>='])
+                self.advance()
             else:
                 self.token(symbols['>'])
 
+        elif self.p[self.i] == '=':
+            if self.has_next() and self.p[self.i] == '=':
+                self.token(T.sym_equ)
+                self.advance()
+            else:
+                self.error(E.illegal_char, self.p[self.i])
+
+        elif self.p[self.i] == '!':
+            if self.has_next() and self.p[self.i] == '=':
+                self.token(T.sym_dif)
+                self.advance()
+            else:
+                self.error(E.illegal_char, self.p[self.i])
+
         elif self.p[self.i] == '&' and self.has_next() and self.p[self.i+1] == '&':
-            self.advance(2)
+            self.advance()
             self.token(T.sym_and)
 
         elif self.p[self.i] == '|' and self.has_next() and self.p[self.i+1] == '|':
-            self.advance(2)
+            self.advance()
             self.token(T.sym_or)
 
         else:
-            self.token(symbols[self.p[self.i]])
+            try:
+                self.token(symbols[self.p[self.i]])
+            except KeyError:
+                self.error(E.illegal_char, self.p[self.i])
 
     def make_operand(self, indexed: bool = False) -> None:
         if self.p[self.i] in digits + '+-':  # immediate value
@@ -317,7 +339,6 @@ class Lexer:
         if self.has_next() and self.p[self.i] == '\n':
             self.new_line()
             self.advance()
-            self.token(T.newLine)
 
     def make_str(self, char: str) -> str:
         word = char
@@ -436,9 +457,10 @@ operand_type = {
 
 
 class Instruction:
-    def __init__(self, opcode: Token, *args: Token) -> None:
+    def __init__(self, opcode: Token, inst_def, *args: Token) -> None:
         self.opcode = opcode
         self.operands: list[Token] = []
+        self.definition: InstDef = inst_def
         for op in args:
             if op is not None:
                 self.operands.append(op)
@@ -492,7 +514,7 @@ class Parser:
             header = self.get_opcode()
             if header.value in headers:
                 self.advance()
-                inst = Instruction(header)
+                inst = Instruction(header, None)
                 op = self.next_operand(inst)
                 if op is not None and op.type == T.imm:
                     headers[header.value] = op.value
@@ -523,6 +545,7 @@ class Parser:
                 continue
 
             self.make_instruction()
+
         return self
 
     # loop saves the context of the nearest outer loop
@@ -541,7 +564,7 @@ class Parser:
 
         opcode_str = opcode.value.upper()
         if recursive:
-            inst = Instruction(opcode)
+            inst = Instruction(opcode, self.get_inst_def(opcode))
             tmp = self.get_tmp()
             inst.operands.append(tmp)
             self.make_operands(inst, recursive=recursive)
@@ -555,7 +578,7 @@ class Parser:
             if loop is None:
                 self.error(E.outside_loop, self.peak(), self.peak())
             else:
-                self.add_inst(Instruction(token(T.word, 'BRA'), loop[2]))
+                self.add_inst(Instruction(token(T.word, 'JMP'), None, loop[2]))
             self.skip_line('EXIT', True)
 
         elif opcode_str == 'SKIP':
@@ -563,15 +586,21 @@ class Parser:
                 self.error(E.outside_loop, self.peak(), self.peak())
             else:
                 if loop[0] is not None:
-                    self.add_inst(end_statement)
-                self.add_inst(Instruction(token(T.word, 'BRA'), loop[1]))
+                    self.add_inst(loop[0])
+                self.add_inst(Instruction(token(T.word, 'JMP'), None, loop[1]))
             self.skip_line('SKIP', True)
+
+        elif opcode_str == 'END':   # ends are recognized by the funcs that use them, so we will ignore them here
+            pass
 
         elif opcode_str == 'SWITCH':
             self.make_switch()
 
         elif opcode_str == 'IF':
             self.make_if()
+
+        elif opcode_str == 'ELIF' or opcode_str == 'ELSE':  # just to avoid them from being added
+            pass
 
         elif opcode_str == 'FOR':
             self.make_for()
@@ -591,7 +620,7 @@ class Parser:
             self.make_import()
 
         elif opcode_str == 'TEMP':
-            inst = Instruction(token(T.word, 'temp'))   # Warning: possible for [] to generate code that we dont want
+            inst = Instruction(token(T.word, 'temp'), None)   # Warning: possible for [] to generate undesired code
             self.make_operands(inst)
             for tmp in inst.operands:
                 self.add_tmp(tmp)
@@ -600,35 +629,40 @@ class Parser:
         # elif opcode_str == '':
         #    self.make_inst()
         else:
-            inst = Instruction(opcode)
+            inst = Instruction(opcode, self.get_inst_def(opcode))
             self.make_operands(inst)
-            self.instructions.append(inst)
+            self.instructions.append(inst)  # even if the instruction is wrong we still add it to output
 
-            # self.check_instruction(inst)
+            self.check_instruction(inst)
 
         self.temp = temps   # restore that same information
+        self.skip_line()
         return
 
-    def check_instruction(self, inst: Instruction) -> None:
+    def get_inst_def(self, opcode):
         try:
-            inst_def: InstDef = self.inst_def[inst.opcode.value]
+            return self.inst_def[opcode.value]
         except KeyError:
-            self.error(E.unk_instruction, inst.opcode)
+            self.error(E.unk_instruction, opcode)
             return
-        if len(inst.operands) > len(inst_def.operands):     # we will ignore extra operands, but provide an error
-            self.error(E.wrong_op_num, inst.opcode, inst.opcode, len(inst_def.operands), len(inst.operands))
+
+    def check_instruction(self, inst: Instruction) -> None:
+        if inst.definition is None:     # didnt recognize the instruction, so no point in type checking
+            return
+        if len(inst.operands) > len(inst.definition.operands):     # we will ignore extra operands, but provide an error
+            self.error(E.wrong_op_num, inst.opcode, inst.opcode, len(inst.definition.operands), len(inst.operands))
         if len(inst.operands) == 0:
             return
 
-        if operand1_type[inst.operands[0].type] != inst_def.operands[0]:
-            self.error(E.wrong_op_type, inst.operands[0], inst.operands[0], inst_def.operands[0])
+        if operand1_type[inst.operands[0].type] != inst.definition.operands[0]:
+            self.error(E.wrong_op_type, inst.operands[0], inst.operands[0], inst.definition.operands[0])
 
-        if len(inst.operands) == len(inst_def.operands)-1:  # operand shorthands
+        if len(inst.operands) == len(inst.definition.operands)-1:  # operand shorthands
             inst.operands.insert(1, inst.operands[0])
 
         # prolly this will change in the future to accommodate for optional operands
-        for op, op_def in zip(inst.operands[1:], inst_def.operands[1:]):
-            if operand_type[op.type] != op_def:
+        for op, op_def in zip(inst.operands[1:], inst.definition.operands[1:]):
+            if op_def != 'A' and operand_type[op.type] != op_def:
                 self.error(E.wrong_op_type, op, op, op_def)
 
         return
@@ -689,11 +723,11 @@ class Parser:
             return operand
 
     def process_scope(self, recursive=False, final_inst=None, start_label=None, end_label=None):
-        while self.has_next() and (self.tokens.type != T.word or self.tokens.value.upper() != 'END'):
-            params: list[Instruction, Token, Token] = list(final_inst, start_label, end_label)
+        while self.has_next() and (self.peak().type != T.word or self.peak().value.upper() != 'END'):
+            params: list[Instruction, Token, Token] = [final_inst, start_label, end_label]
             self.make_instruction(recursive, params)
         if not self.has_next():
-            self.error(E.end_expected, self.peak())
+            self.error(E.end_expected, start_label)
 
     def skip_line(self, inst: str = None, error: bool = False) -> int:
         skipped = self.skip_until(T.newLine)
@@ -705,7 +739,7 @@ class Parser:
 
     def skip_until(self, type: T) -> int:
         skipped = 0
-        while self.has_next() and self.next().type is not type:
+        while self.has_next() and self.peak().type is not type:
             skipped += 1
             self.advance()
         return skipped
@@ -754,32 +788,36 @@ class Parser:
         if self.has_next() and self.peak().type != T.newLine:
             if len(inst.operands) == 0:  # no operands yet -> this is the first operand
                 if operand.type in operand1_type:
-                    if operand1_type[operand.type] == OpType.W:
+                    if inst.definition.operands[0] == OpType.W:
+                        # self.add_inst(Instruction(token(T.word, 'STR'), None, temp, <dest reg here>))
                         pass
-                    elif operand1_type[operand.type] == OpType.M:
-                        pass
+                    elif inst.definition.operands[0] == OpType.M:
+                        self.translate_pointer(inst, operand, temp)
             else:
-                if self.peak().type == T.sym_rbr:
-                    offset = token(T.imm, '0')
-                else:
-                    self.next_operand(inst)
-                    offset = inst.operands.pop()    # retrieve the operand that got added in the process
-                self.skip_until(T.sym_rbr)
-
-                if offset.value != '0':
-                    self.add_inst(Instruction(token(T.word, 'ADD'), temp, operand, offset))
-                    self.add_inst(Instruction(token(T.word, 'LOD'), temp, temp))
-                else:
-                    self.add_inst(Instruction(token(T.word, 'LOD'), temp, operand))
+                self.translate_pointer(inst, operand, temp)
 
             if self.has_next() and self.peak().type == T.sym_lbr:
                 self.make_mem_index(inst, temp, temp)
             self.set_tmp(temp)
             return
 
+    def translate_pointer(self, inst: Instruction, operand, temp):
+        if self.peak().type == T.sym_rbr:
+            offset = token(T.imm, '0')
+        else:
+            self.next_operand(inst)
+            offset = inst.operands.pop()  # retrieve the operand that got added in the process
+        self.skip_until(T.sym_rbr)
+
+        if offset.value != '0':
+            self.add_inst(Instruction(token(T.word, 'ADD'), None, temp, operand, offset))
+            self.add_inst(Instruction(token(T.word, 'LOD'), None, temp, temp))
+        else:
+            self.add_inst(Instruction(token(T.word, 'LOD'), None, temp, operand))
+        return
+
     def make_switch(self) -> None:
-        inst = Instruction(Token(T.word, self.peak().position, self.peak().line, 'SWITCH'))
-        self.advance()
+        inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'SWITCH'), None)
 
         has_default = False
         default_label: str = None
@@ -795,7 +833,7 @@ class Parser:
 
         while self.has_next() and (self.peak().type != T.word or self.peak().value.upper() != 'END'):
             if self.peak().type == T.word and self.peak().value.upper() == 'CASE':
-                operands: List[Token] = self.make_operands(Instruction(token(T.word, 'SWITCH')))
+                operands: List[Token] = self.make_operands(Instruction(token(T.word, 'SWITCH'), None))
                 case_label = f'.reserved_case{id}_{case_num}'
                 self.labels.add(case_label)
 
@@ -807,7 +845,7 @@ class Parser:
                         else:
                             cases.add(value)
                             switch[value] = case_label
-                            self.add_inst(Instruction(token(T.label, case_label)))
+                            self.add_inst(Instruction(token(T.label, case_label), None))
                     else:
                         self.error(E.invalid_op_type, op, op.type, inst)
 
@@ -818,12 +856,12 @@ class Parser:
                     has_default = True
                     default_label = f'.reserved_default{id}'
                     self.labels.add(default_label)
-                    self.add_inst(Instruction(token(T.label, default_label)))
+                    self.add_inst(Instruction(token(T.label, default_label), None))
                     self.skip_line('DEFAULT', True)
 
             elif self.peak().type == T.word and self.peak().value.upper() == 'EXIT':
                 self.skip_line('EXIT', True)
-                self.add_inst(Instruction(Token(T.word, pos, line, 'BRA'), end_label))
+                self.add_inst(Instruction(Token(T.word, pos, line, 'BRA'), None, end_label))
 
             else:
                 self.make_instruction()
@@ -852,15 +890,15 @@ class Parser:
             dw = str(dw).replace(',', '')
             dw = dw.replace("'", '')
             # inserted in reverse order to what they are here
-            self.instructions.insert(dw_loc, Instruction(token(T.word, 'DW'), dw))
-            self.instructions.insert(dw_loc, Instruction(token(T.label, start_label)))
-            self.instructions.insert(dw_loc, Instruction(token(T.word, 'JMP'), tmp))
-            self.instructions.insert(dw_loc, Instruction(token(T.word, 'LOD'), tmp, tmp))
-            self.instructions.insert(dw_loc, Instruction(token(T.word, 'ADD'), tmp, tmp, start_label))
+            self.instructions.insert(dw_loc, Instruction(token(T.word, 'DW'), None, dw))
+            self.instructions.insert(dw_loc, Instruction(token(T.label, start_label), None))
+            self.instructions.insert(dw_loc, Instruction(token(T.word, 'JMP'), None, tmp))
+            self.instructions.insert(dw_loc, Instruction(token(T.word, 'LOD'), None, tmp, tmp))
+            self.instructions.insert(dw_loc, Instruction(token(T.word, 'ADD'), None, tmp, tmp, start_label))
             if smallest_case != 0:
-                self.instructions.insert(dw_loc, Instruction(token(T.word, 'SUB'), tmp, reg, smallest_case))
-            self.instructions.insert(dw_loc, Instruction(token(T.word, 'BRG'), end_label, reg, biggest_case))
-            self.instructions.insert(dw_loc, Instruction(token(T.word, 'BRL'), end_label, reg, smallest_case))
+                self.instructions.insert(dw_loc, Instruction(token(T.word, 'SUB'), None, tmp, reg, smallest_case))
+            self.instructions.insert(dw_loc, Instruction(token(T.word, 'BRG'), None, end_label, reg, biggest_case))
+            self.instructions.insert(dw_loc, Instruction(token(T.word, 'BRL'), None, end_label, reg, smallest_case))
 
         else:
             self.error(E.word_miss, self.peak(), self.peak())
@@ -869,12 +907,11 @@ class Parser:
         return
 
     def make_if(self) -> None:
-        inst = Instruction(Token(T.word, self.peak().position, self.peak().line, 'IF'))
-        self.advance()
+        inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'IF'), None)
         else_done = False
         else_count = 0
         end_label, start_label, id = self.get_label_helper(inst)  # end_label, start_label are not used
-        next_label: Token = Token(T.label, pos, line, f'.reserved_else{id}_{else_count}')
+        next_label: Token = token(T.label, f'.reserved_else{id}_{else_count}')
 
         self.do_condition(inst, next_label, id)
 
@@ -883,81 +920,78 @@ class Parser:
                 if else_done:
                     self.error(E.missing_if, self.peak(), self.peak())
                 else:
-                    self.add_inst(Instruction(token(T.word, 'JMP'), end_label))
+                    self.add_inst(Instruction(token(T.word, 'JMP'), None, end_label))
                     self.labels.add(next_label)
-                    self.add_inst(Instruction(token(T.label, next_label)))
+                    self.add_inst(Instruction(next_label, None))
                     self.advance()
                     else_count += 1
-                    next_label = Token(T.label, pos, line, f'.reserved_else{id}_{else_count}')
+                    next_label = token(T.label, f'.reserved_else{id}_{else_count}')
+                    inst.operands = []      # clean the previous if/elif condition operands
                     self.do_condition(inst, next_label, id)
 
             elif self.peak().type == T.word and self.peak().value.upper() == 'ELSE':
                 if else_done:
                     self.error(E.missing_if, self.peak(), self.peak())
                 else:
-                    self.add_inst(Instruction(token(T.word, 'JMP'), end_label))
+                    else_done = True
+                    self.add_inst(Instruction(token(T.word, 'JMP'), None, end_label))
                     self.labels.add(next_label)
-                    self.add_inst(Instruction(token(T.label, next_label)))
+                    self.add_inst(Instruction(next_label, None))
                     self.skip_line(inst, True)
             else:
                 self.make_instruction()
 
         if not else_done:
             self.labels.add(next_label)
-            self.add_inst(Instruction(token(T.label, next_label)))
+            self.add_inst(Instruction(next_label, None))
         self.labels.add(end_label)
-        self.add_inst(Instruction(token(T.label, end_label)))
+        self.add_inst(Instruction(end_label, None))
 
-        self.advance()
+        # self.advance()
         return
 
     def make_for(self, recursive=False) -> None:
-        inst = Instruction(Token(T.word, self.peak().position, self.peak().line, 'FOR'))
-        self.advance()
+        inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'FOR'), None)
         end_label, start_label, id = self.get_label_helper(inst)
         reg = self.next_operand(inst)
         end_num = self.next_operand(inst)
 
         self.labels.add(start_label)
-        self.add_inst(Instruction(token(T.label, start_label)))
-        self.add_inst(Instruction(token(T.word, 'BRG'), end_label, reg, end_num))
+        self.add_inst(Instruction(start_label, None))
+        self.add_inst(Instruction(token(T.word, 'BGE'), end_label, reg, end_num))
 
         if self.has_next() and self.tokens[self.i] != T.newLine:  # checking if there is the option parameter
             value_to_add = self.next_operand(inst)
-            end_statement: Instruction = Instruction(token(T.word, 'ADD'), reg, reg, value_to_add)
+            end_statement: Instruction = Instruction(token(T.word, 'ADD'), None, reg, reg, value_to_add)
         else:
-            end_statement: Instruction = Instruction(token(T.word, 'ADD'), reg, reg, token(T.imm, '1'))
+            end_statement: Instruction = Instruction(token(T.word, 'ADD'), None, reg, reg, token(T.imm, '1'))
         self.skip_line(inst, True)
 
         self.process_scope(recursive, end_statement, start_label, end_label)
 
-        if self.has_next():
-            self.add_inst(end_statement)
-            self.add_inst(Instruction(token(T.word, 'BRA'), start_label))
-            self.labels.add(end_label)
-            self.add_inst(Instruction(token(T.label, end_label)))
+        self.add_inst(end_statement)
+        self.add_inst(Instruction(token(T.word, 'JMP'), None, start_label))
+        self.labels.add(end_label)
+        self.add_inst(Instruction(end_label, None))
         return
 
     def make_while(self, recursive=False) -> None:
-        inst = Instruction(Token(T.word, self.peak().position, self.peak().line, 'WHILE'))
-        self.advance()
+        inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'WHILE'), None)
         end_label, start_label, id = self.get_label_helper(inst)
         self.labels.add(start_label)
-        self.add_inst(Instruction(token(T.label, start_label)))
+        self.add_inst(Instruction(start_label, None))
 
         self.do_condition(inst, end_label, id)
 
         self.process_scope(recursive, None, start_label, end_label)
 
-        if self.has_next():
-            self.add_inst(Instruction(token(T.word, 'BRA'), start_label))
-            self.labels.add(end_label)
-            self.add_inst(Instruction(token(T.label, end_label)))
+        self.add_inst(Instruction(token(T.word, 'JMP'), None, start_label))
+        self.labels.add(end_label)
+        self.add_inst(Instruction(end_label, None))
         return
 
     def make_lcal(self) -> None:
-        inst = Instruction(Token(T.word, self.peak().position, self.peak().line, 'LCAL'))
-        self.advance()
+        inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'LCAL'), None)
         lib = self.next_operand(inst)
 
         if lib.type != T.word:
@@ -988,19 +1022,19 @@ class Parser:
             outs = headers['OUTS']
             regs = headers['REGS']
             for reg_num in range(outs, regs + 1):      # save the registers used not part of the output
-                self.add_inst(Instruction(token(T.word, 'PSH'), token(T.reg, f'R{reg_num}')))
+                self.add_inst(Instruction(token(T.word, 'PSH'), None, token(T.reg, f'R{reg_num}')))
 
             for arg in inst.operands.reverse():     # push the arguments
-                self.add_inst(Instruction(token(T.word, 'PSH'), arg))
+                self.add_inst(Instruction(token(T.word, 'PSH'), None, arg))
 
             lib.value = '.reserved_' + lib.value
-            self.add_inst(Instruction(token(T.word, 'CAL'), lib))
+            self.add_inst(Instruction(token(T.word, 'CAL'), None, lib))
 
             sp = token(T.reg, 'SP')
-            self.add_inst(Instruction(token(T.word, 'ADD'), sp, sp, token(T.imm, len(inst.operands))))  # pop args back
+            self.add_inst(Instruction(token(T.word, 'ADD'), None, sp, sp, token(T.imm, len(inst.operands))))  # pop args back
 
             for reg_num in range(regs, outs - 1, -1):
-                self.add_inst(Instruction(token(T.word, 'POP'), token(T.reg, f'R{reg_num}')))
+                self.add_inst(Instruction(token(T.word, 'POP'), None, token(T.reg, f'R{reg_num}')))
 
         return
 
@@ -1020,8 +1054,7 @@ class Parser:
         return
 
     def make_define(self) -> None:
-        inst = Instruction(Token(T.word, self.peak().position, self.peak().line, 'DEFINE'))
-        self.advance()
+        inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'DEFINE'), None)
         macro = self.next_operand(inst)
         if macro.type != T.macro:
             self.error(E.invalid_op_type, macro, macro.type, 'DEFINE')
@@ -1036,8 +1069,8 @@ class Parser:
         return
 
     def get_label_helper(self, inst: Instruction) -> Token:
-        end_label = Token(T.label, pos, line, f'.reserved_end{self.id_count}')
-        loop_label = Token(T.label, pos, line, f'.reserved_{inst}{self.id_count}')
+        end_label = token(T.label, f'.reserved_end{self.id_count}')
+        loop_label = token(T.label, f'.reserved_{inst.opcode.value}{self.id_count}')
         self.id_count += 1
         return end_label, loop_label, self.id_count-1
 
@@ -1045,16 +1078,16 @@ class Parser:
         operands = self.make_operands(inst)
         self.skip_line()
         if len(operands) == 1:
-            self.add_inst(Instruction(token(T.word, 'BRZ'), label, operands[0]))
+            self.add_inst(Instruction(token(T.word, 'BRZ'), None, label, operands[0]))
         elif len(operands) == 3:
             cnd = operands[1].type
             comparison = {
-                T.sym_lt: Instruction(token(T.word, 'BGE'), label, operands[0], operands[2]),
-                T.sym_gt: Instruction(token(T.word, 'BLE'), label, operands[0], operands[2]),
-                T.sym_geq: Instruction(token(T.word, 'BRL'), label, operands[0], operands[2]),
-                T.sym_leq: Instruction(token(T.word, 'BRG'), label, operands[0], operands[2]),
-                T.sym_dif: Instruction(token(T.word, 'BRE'), label, operands[0], operands[2]),
-                T.sym_equ: Instruction(token(T.word, 'BNE'), label, operands[0], operands[2]),
+                T.sym_lt: Instruction(token(T.word, 'BGE'), None, label, operands[0], operands[2]),
+                T.sym_gt: Instruction(token(T.word, 'BLE'), None, label, operands[0], operands[2]),
+                T.sym_geq: Instruction(token(T.word, 'BRL'), None, label, operands[0], operands[2]),
+                T.sym_leq: Instruction(token(T.word, 'BRG'), None, label, operands[0], operands[2]),
+                T.sym_dif: Instruction(token(T.word, 'BRE'), None, label, operands[0], operands[2]),
+                T.sym_equ: Instruction(token(T.word, 'BNE'), None, label, operands[0], operands[2]),
             }
             if cnd not in comparison:
                 return  # wrong condition or smt
