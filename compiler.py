@@ -118,8 +118,17 @@ def main():
     dest_name = argv[2] if len(argv) >= 3 else None
 
     source = r'''
-IF R1 == R2
-  INC R1 R1
+FOR R1 R2 4
+  EXIT
+  WHILE R1 > R2
+    IF R1 >= R2
+      SKIP
+    ELSE
+      INC R2
+    END
+  END
+  SKIP
+ADD R1 (DEC R2) R3[]
 END'''
     
     if source_name is not None:
@@ -151,7 +160,9 @@ END'''
     parser = Parser(tokens).parse()
 
     print("Instructions:", file=dest)
-    print(parser.instructions, file=dest)
+    for inst in parser.instructions:
+        print(inst, file=dest)
+    # print(parser.instructions, file=dest)
     print("\n", file=dest)
 
     print("Identifiers:", file=dest)
@@ -230,38 +241,38 @@ class Lexer:
 
     def make_symbol(self):
         if self.p[self.i] == '<':
-            if self.has_next() and self.p[self.i] == '=':
+            if self.has_next(1) and self.p[self.i+1] == '=':
                 self.token(symbols['<='])
                 self.advance()
             else:
                 self.token(symbols['<'])
 
         elif self.p[self.i] == '>':
-            if self.has_next() and self.p[self.i] == '=':
+            if self.has_next(1) and self.p[self.i+1] == '=':
                 self.token(symbols['>='])
                 self.advance()
             else:
                 self.token(symbols['>'])
 
         elif self.p[self.i] == '=':
-            if self.has_next() and self.p[self.i] == '=':
+            if self.has_next(1) and self.p[self.i] == '=':
                 self.token(T.sym_equ)
                 self.advance()
             else:
                 self.error(E.illegal_char, self.p[self.i])
 
         elif self.p[self.i] == '!':
-            if self.has_next() and self.p[self.i] == '=':
+            if self.has_next(1) and self.p[self.i] == '=':
                 self.token(T.sym_dif)
                 self.advance()
             else:
                 self.error(E.illegal_char, self.p[self.i])
 
-        elif self.p[self.i] == '&' and self.has_next() and self.p[self.i+1] == '&':
+        elif self.p[self.i] == '&' and self.has_next(1) and self.p[self.i+1] == '&':
             self.advance()
             self.token(T.sym_and)
 
-        elif self.p[self.i] == '|' and self.has_next() and self.p[self.i+1] == '|':
+        elif self.p[self.i] == '|' and self.has_next(1) and self.p[self.i+1] == '|':
             self.advance()
             self.token(T.sym_or)
 
@@ -576,14 +587,14 @@ class Parser:
 
         elif opcode_str == 'EXIT':
             if loop is None:
-                self.error(E.outside_loop, self.peak(), self.peak())
+                self.error(E.outside_loop, self.peak(-1), self.peak(-1))
             else:
                 self.add_inst(Instruction(token(T.word, 'JMP'), None, loop[2]))
             self.skip_line('EXIT', True)
 
         elif opcode_str == 'SKIP':
             if loop is None:
-                self.error(E.outside_loop, self.peak(), self.peak())
+                self.error(E.outside_loop, self.peak(-1), self.peak(-1))
             else:
                 if loop[0] is not None:
                     self.add_inst(loop[0])
@@ -597,7 +608,7 @@ class Parser:
             self.make_switch()
 
         elif opcode_str == 'IF':
-            self.make_if()
+            self.make_if(loop)
 
         elif opcode_str == 'ELIF' or opcode_str == 'ELSE':  # just to avoid them from being added
             pass
@@ -906,7 +917,7 @@ class Parser:
         self.advance()
         return
 
-    def make_if(self) -> None:
+    def make_if(self, loop=None) -> None:
         inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'IF'), None)
         else_done = False
         else_count = 0
@@ -939,7 +950,7 @@ class Parser:
                     self.add_inst(Instruction(next_label, None))
                     self.skip_line(inst, True)
             else:
-                self.make_instruction()
+                self.make_instruction(loop=loop)
 
         if not else_done:
             self.labels.add(next_label)
@@ -1130,8 +1141,8 @@ class Parser:
         self.skip_line()
         return queue
 
-    def peak(self) -> Token:
-        return self.tokens[self.i]
+    def peak(self, j=0) -> Token:
+        return self.tokens[self.i+j]
 
     def next(self) -> Token:
         self.i += 1
