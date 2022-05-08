@@ -128,7 +128,7 @@ FOR R1 R2 4
     END
   END
   SKIP
-ADD R1 (DEC R2) R3[]
+ADD R1 (DEC R2)[][] R3[]
 END'''
     
     if source_name is not None:
@@ -195,7 +195,7 @@ class Error:
         self.args = args
 
     def __repr__(self) -> str:
-        return f'{self.error.value.format(self.args)}, at char {self.index} at line {self.line}'
+        return f'{self.error.value.format(*self.args)}, at char {self.index} at line {self.line}'
 
 
 class Lexer:
@@ -569,8 +569,6 @@ class Parser:
         if not self.has_next():
             return
 
-        # # # # # # # # # # # # not final # # # # # # # # # # # #
-
         temps: Dict[Token] = self.temp.copy()   # save the current state of the temps
 
         opcode_str = opcode.value.upper()
@@ -590,16 +588,14 @@ class Parser:
                 self.error(E.outside_loop, self.peak(-1), self.peak(-1))
             else:
                 self.add_inst(Instruction(token(T.word, 'JMP'), None, loop[2]))
-            self.skip_line('EXIT', True)
 
         elif opcode_str == 'SKIP':
             if loop is None:
                 self.error(E.outside_loop, self.peak(-1), self.peak(-1))
             else:
-                if loop[0] is not None:
+                if loop[0] is not None:     # while loops dont have a final statement
                     self.add_inst(loop[0])
                 self.add_inst(Instruction(token(T.word, 'JMP'), None, loop[1]))
-            self.skip_line('SKIP', True)
 
         elif opcode_str == 'END':   # ends are recognized by the funcs that use them, so we will ignore them here
             pass
@@ -654,7 +650,7 @@ class Parser:
         try:
             return self.inst_def[opcode.value]
         except KeyError:
-            self.error(E.unk_instruction, opcode)
+            self.error(E.unk_instruction, opcode, opcode)
             return
 
     def check_instruction(self, inst: Instruction) -> None:
@@ -740,10 +736,10 @@ class Parser:
         if not self.has_next():
             self.error(E.end_expected, start_label)
 
-    def skip_line(self, inst: str = None, error: bool = False) -> int:
+    def skip_line(self, inst: Instruction = None, error: bool = False) -> int:
         skipped = self.skip_until(T.newLine)
         if error and skipped != 0:
-            self.error(E.wrong_op_num, self.peak(), inst, len(inst.operands), len(inst.operands)+skipped)
+            self.error(E.wrong_op_num, self.peak(-skipped), inst, len(inst.operands), len(inst.operands)+skipped)
         if self.has_next():
             self.advance()
         return
@@ -806,7 +802,7 @@ class Parser:
                         self.translate_pointer(inst, operand, temp)
             else:
                 self.translate_pointer(inst, operand, temp)
-
+            self.advance()
             if self.has_next() and self.peak().type == T.sym_lbr:
                 self.make_mem_index(inst, temp, temp)
             self.set_tmp(temp)
@@ -868,10 +864,10 @@ class Parser:
                     default_label = f'.reserved_default{id}'
                     self.labels.add(default_label)
                     self.add_inst(Instruction(token(T.label, default_label), None))
-                    self.skip_line('DEFAULT', True)
+                    self.skip_line(inst, True)
 
             elif self.peak().type == T.word and self.peak().value.upper() == 'EXIT':
-                self.skip_line('EXIT', True)
+                self.skip_line(inst, True)
                 self.add_inst(Instruction(Token(T.word, pos, line, 'BRA'), None, end_label))
 
             else:
@@ -948,6 +944,7 @@ class Parser:
                     self.add_inst(Instruction(token(T.word, 'JMP'), None, end_label))
                     self.labels.add(next_label)
                     self.add_inst(Instruction(next_label, None))
+                    self.advance()
                     self.skip_line(inst, True)
             else:
                 self.make_instruction(loop=loop)
@@ -1076,7 +1073,7 @@ class Parser:
         else:
             self.macros[macro] = value
 
-        self.skip_line('DEFINE', True)
+        self.skip_line(inst, True)
         return
 
     def get_label_helper(self, inst: Instruction) -> Token:
