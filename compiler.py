@@ -118,8 +118,7 @@ def main():
     dest_name = argv[2] if len(argv) >= 3 else None
 
     source = r'''
-DEFINE @var R1
-INC @var @var'''
+IMPORT mem'''
 
     if source_name is not None:
         if isfile(source_name):
@@ -278,23 +277,9 @@ class Lexer:
 
         else:  # format: op_type:<data>
             prefix = self.p[self.i]
+            self.advance()
 
-            if prefix in 'rR$':  # register
-                self.advance()
-                if self.p[self.i] not in '+-':
-                    self.token(T.reg, 'R' + str(self.make_num()))
-                else:
-                    self.error(E.illegal_char, self.p[self.i])
-
-            elif prefix in 'mM#':  # memory
-                self.advance()
-                if self.p[self.i] not in '+-':
-                    self.token(T.mem, 'M' + str(self.make_num()))
-                else:
-                    self.error(E.illegal_char, self.p[self.i])
-
-            elif prefix == '%':  # port
-                self.advance()
+            if prefix == '%':  # port
                 if self.p[self.i] in digits:
                     self.token(T.port, '%' + str(self.make_num()))
                 else:
@@ -305,19 +290,15 @@ class Lexer:
                         self.error(E.unk_port, name)
 
             elif prefix == '~':  # relative
-                self.advance()
                 self.token(T.relative, prefix + str(self.make_num()))
 
             elif prefix == '.':  # label
-                self.advance()
                 self.token(T.label, prefix + self.make_word())
 
             elif prefix == '@':  # macro
-                self.advance()
                 self.token(T.macro, prefix + self.make_word())
 
             elif prefix == "'":  # character
-                self.advance()
                 char = self.make_str("'")
                 if len(char) == 3:  # char = "'<char>'"
                     self.token(T.char, char)
@@ -325,11 +306,21 @@ class Lexer:
                     self.error(E.invalid_char, char)
 
             elif prefix == '"':
-                self.advance()
                 self.token(T.string, self.make_str('"'))
 
             elif self.p[self.i] in charset:  # opcode or other words
-                self.token(T.word, self.make_word())
+                self.advance()  # ignoring the prefix (I know it advanced already above, but we need 2 times)
+                string = self.make_word()
+                if prefix in 'mM#rR$':
+                    try:
+                        if prefix in 'rR$':  # register
+                            self.token(T.reg, 'R' + str(int(string, 0)))
+                        else:  # memory
+                            self.token(T.mem, 'M' + str(int(string, 0)))
+                    except ValueError:
+                        self.token(T.word, prefix + string)
+                else:
+                    self.token(T.word, prefix + string)
 
             # elif prefix == '':
             #    self.token()
@@ -359,8 +350,7 @@ class Lexer:
             return word
 
     def make_word(self) -> str:
-        word = self.p[self.i]
-        self.advance()
+        word = self.p[self.i-1]     # this will never go out of bounds
         while self.has_next() and self.p[self.i] not in indentation:
             if self.p[self.i] in symbols:
                 break
@@ -767,7 +757,7 @@ class Parser:
             self.i += 1
 
         if self.has_next():
-            return self.tokens[self.i]
+            return self.peak()
         else:  # missing Instruction error
             return
 
@@ -1043,17 +1033,18 @@ class Parser:
 
     def read_lib(self, name: str):
         path = lib_root + "/" + name.replace(".", "/") + ".urcl"
-        if not os.path.isdir(path):
+        if not isdir(path):
             self.error(E.unk_library, self.peak(), name.split('.')[0])
             return
-        if not os.path.isfile(path):
+        if not isfile(path):
             self.error(E.unk_function, self.peak(), name.split('.')[1])
             return
         with open(path, "r") as f:
             return f.read()
 
     def make_import(self):
-        # TODO
+        lib_name = self.next_word().value
+        lib_code = self.read_lib(lib_name)
         return
 
     def make_define(self) -> None:
