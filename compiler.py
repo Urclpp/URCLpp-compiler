@@ -118,15 +118,8 @@ def main():
     dest_name = argv[2] if len(argv) >= 3 else None
 
     source = r'''
-SWITCH R1
-    CASE 1
-    INC R2
-    CASE 9
-    DEC R2
-    DEFAULT
-    IMM R2 69
-END
-'''
+DEFINE @var R1
+INC @var @var'''
 
     if source_name is not None:
         if isfile(source_name):
@@ -706,11 +699,12 @@ class Parser:
                 elif value in default_macros:
                     operand = self.peak()
 
-                elif inst.opcode.upper() != 'DEFINE' or 'DEFINE' != self.tokens[self.i - 1].value:  # checking if not the 1st op of DEFINE
-                    self.error(E.undefined_macro, self.peak(), self.peak())
+                elif inst.opcode.value.upper() == 'DEFINE' and 'DEFINE' == self.peak(-1).value:  # 1st op of DEFINE
+                    operand = self.peak()
 
                 else:
                     self.error(E.undefined_macro, self.peak(), self.peak())
+                self.advance()
 
             else:
                 operand = self.peak()
@@ -1069,12 +1063,10 @@ class Parser:
             self.error(E.invalid_op_type, macro, macro.type, 'DEFINE')
 
         value = self.next_operand(inst)
-        if macro in self.macros or macro in default_macros:
+        if macro.value in self.macros or macro.value in default_macros:
             self.error(E.duplicate_macro, macro, macro)
         else:
-            self.macros[macro] = value
-
-        self.skip_line(inst, True)
+            self.macros[macro.value] = value
         return
 
     def get_label_helper(self, inst: Instruction) -> Token:
