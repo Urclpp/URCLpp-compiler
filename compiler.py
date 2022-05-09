@@ -118,19 +118,16 @@ def main():
     dest_name = argv[2] if len(argv) >= 3 else None
 
     source = r'''
-FOR R1 R2 4
-  EXIT
-  WHILE R1 > R2
-    IF R1 >= R2
-      SKIP
-    ELSE
-      INC R2
-    END
-  END
-  SKIP
-ADD R1 (DEC R2)[][] R3[]
-END'''
-    
+SWITCH R1
+    CASE 1
+    INC R2
+    CASE 9
+    DEC R2
+    DEFAULT
+    IMM R2 69
+END
+'''
+
     if source_name is not None:
         if isfile(source_name):
             with open(source_name, mode='r') as sf:
@@ -830,27 +827,28 @@ class Parser:
         default_label: str = None
         end_label, start_label, id = self.get_label_helper(inst)
         case_num = 0
-        cases: set(int) = set()
+        cases: List[int] = []
         switch: dict[int] = {}
         dw_loc = len(self.instructions)
 
         reg: Token = self.next_operand(inst)
         tmp = self.get_tmp()
         self.ret_tmp(tmp)
-
+        self.skip_line(inst, True)
         while self.has_next() and (self.peak().type != T.word or self.peak().value.upper() != 'END'):
             if self.peak().type == T.word and self.peak().value.upper() == 'CASE':
-                operands: List[Token] = self.make_operands(Instruction(token(T.word, 'SWITCH'), None))
+                self.advance()
+                operands: List[Token] = self.make_operands(Instruction(token(T.word, 'CASE'), None))
                 case_label = f'.reserved_case{id}_{case_num}'
                 self.labels.add(case_label)
-
+                case_num += 1
                 for op in operands:
                     if op.type == T.imm:
                         value = int(op.value, 0)
                         if value in cases:
                             self.error(E.duplicate_case, op)
                         else:
-                            cases.add(value)
+                            cases.append(value)
                             switch[value] = case_label
                             self.add_inst(Instruction(token(T.label, case_label), None))
                     else:
@@ -864,6 +862,7 @@ class Parser:
                     default_label = f'.reserved_default{id}'
                     self.labels.add(default_label)
                     self.add_inst(Instruction(token(T.label, default_label), None))
+                    self.advance()
                     self.skip_line(inst, True)
 
             elif self.peak().type == T.word and self.peak().value.upper() == 'EXIT':
@@ -888,7 +887,7 @@ class Parser:
                 if num in cases:
                     address = switch[num]
                 else:
-                    if default_done:
+                    if has_default:
                         address = default_label
                     else:
                         address = end_label
@@ -904,8 +903,10 @@ class Parser:
             self.instructions.insert(dw_loc, Instruction(token(T.word, 'ADD'), None, tmp, tmp, start_label))
             if smallest_case != 0:
                 self.instructions.insert(dw_loc, Instruction(token(T.word, 'SUB'), None, tmp, reg, smallest_case))
-            self.instructions.insert(dw_loc, Instruction(token(T.word, 'BRG'), None, end_label, reg, biggest_case))
-            self.instructions.insert(dw_loc, Instruction(token(T.word, 'BRL'), None, end_label, reg, smallest_case))
+            if has_default:
+                default_label = end_label
+            self.instructions.insert(dw_loc, Instruction(token(T.word, 'BRG'), None, default_label, reg, biggest_case))
+            self.instructions.insert(dw_loc, Instruction(token(T.word, 'BRL'), None, default_label, reg, smallest_case))
 
         else:
             self.error(E.word_miss, self.peak(), self.peak())
