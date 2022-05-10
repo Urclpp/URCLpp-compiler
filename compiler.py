@@ -76,6 +76,7 @@ port_names = {'CPUBUS', 'TEXT', 'NUMB', 'SUPPORTED', 'SPECIAL', 'PROFILE', 'X', 
 default_macros = {'@BITS', '@MINREG', '@MINRAM', '@HEAP', '@MINSTACK', '@MSB', '@SMSB', '@MAX', '@SMAX', '@UHALF',
                   '@LHALF'}
 
+file_extension = '.urcl'
 lib_root = 'urclpp-libraries'
 default_imports = set()  # default_imports = {"inst.core", "inst.io", "inst.basic", "inst.complex"}
 
@@ -118,9 +119,7 @@ def main():
     dest_name = argv[2] if len(argv) >= 3 else None
 
     source = r'''
-IMPORT mem.falloc mem.init
-
-ADD R1 R2 R3'''
+'''
 
     if source_name is not None:
         if os.path.isfile(source_name):
@@ -311,18 +310,19 @@ class Lexer:
                 self.token(T.string, self.make_str('"'))
 
             elif self.p[self.i] in charset:  # opcode or other words
-                self.advance()  # ignoring the prefix (I know it advanced already above, but we need 2 times)
-                string = self.make_word()
-                if prefix in 'mM#rR$':
+                string = prefix + self.make_word()
+                if string == 'SP' or string == 'PC':
+                    self.token(T.reg, string)
+                elif prefix in 'mM#rR$':
                     try:
                         if prefix in 'rR$':  # register
                             self.token(T.reg, 'R' + str(int(string, 0)))
                         else:  # memory
                             self.token(T.mem, 'M' + str(int(string, 0)))
                     except ValueError:
-                        self.token(T.word, prefix + string)
+                        self.token(T.word, string)
                 else:
-                    self.token(T.word, prefix + string)
+                    self.token(T.word, string)
 
             # elif prefix == '':
             #    self.token()
@@ -352,7 +352,7 @@ class Lexer:
             return word
 
     def make_word(self) -> str:
-        word = self.p[self.i-1]     # this will never go out of bounds
+        word = ''
         while self.has_next() and self.p[self.i] not in indentation:
             if self.p[self.i] in symbols:
                 break
@@ -483,7 +483,9 @@ class Parser:
         self.id_count = 0
         self.macros: dict[Token] = {}
         self.labels: set(str) = set()
-        self.libs: List[str] = []
+        self.lib_headers: dict[str] = {}
+        self.imported_libs = set()
+        self.recursive = recursive
         if recursive:
             self.lib_code = []
         else:
@@ -513,39 +515,39 @@ class Parser:
                 self.advance()
                 inst = Instruction(header, None)
                 if inst.opcode.value in {'BITS'}:
-                    comparrison_op = self.next_operand(inst)
+                    comparison_op = self.next_operand(inst)
                 op = self.next_operand(inst)
                 if op is not None and op.type == T.imm:
-                    headers[header.value] = op.value
+                    headers[header.value] = int(op.value, 0)
             else:   # headers are over
                 if self.i != 0:
                     self.i -= 1
                 else:
-                    pass    # should get error cause no libs were provided
+                    pass    # should get error cause no headers were provided
                 break
         return headers
 
     def parse(self):
         while self.has_next():
-            word = self.next_word()
-            if word is None:
-                if self.has_next():
-                    self.next()
-                continue
+            while self.has_next() and self.peak().type == T.newLine:
+                self.advance()
+            if not self.has_next():
+                break
 
-            if word.value.upper() == 'INST':
-                self.make_inst_def()
-                continue
+            tok = self.peak()
+            if tok.type == T.label:
+                self.add_inst(Instruction(tok, None))
+                self.advance()
 
-            id = self.ids.get(word.value.upper())
-            if isinstance(id, InstDef):
-                self.make_instruction(id)
-                self.i += 1
-                continue
+            elif tok.type == T.word:
+                self.make_instruction()
 
-            self.make_instruction()
+            else:
+                self.error(E.word_miss, tok, self.peak())
+                self.advance()
 
-        self.instructions = self.instructions + self.lib_code
+        if not self.recursive:
+            self.instructions = self.instructions + self.lib_code
         return self
 
     # loop saves the context of the nearest outer loop
@@ -683,7 +685,7 @@ class Parser:
                 self.advance()
                 operand = self.make_instruction(recursive=True)
                 if self.has_next() and self.peak().type == T.sym_lbr:
-                    if operand is not None:
+                    if operand is not None and operand.type not in {T.word, T.string}:  # these are not primitive types
                         self.make_mem_index(inst, operand, operand)
                         inst.operands.append(operand)
                 else:
@@ -710,7 +712,7 @@ class Parser:
                 self.advance()
             if self.has_next() and self.peak().type == T.sym_lbr:
                 temp = self.get_tmp()
-                if temp is not None:
+                if temp is not None and operand.type not in {T.word, T.string}:  # these are not primitive types
                     self.make_mem_index(inst, operand, temp)
                     self.ret_tmp(temp)
                     inst.operands.append(temp)
@@ -993,24 +995,16 @@ class Parser:
         return
 
     def make_lcal(self) -> None:
-        inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'LCAL'), None)
+        inst = Instruction(Token(T.word, self.peak(-1).position, self.peak(-1).line, 'LCAL'), None)
         lib = self.next_operand(inst)
-
+        inst.operands = []      # clean the list, so we can use it for func args
         if lib.type != T.word:
             return
-        lib_file = self.read_lib(lib.value)
-        if lib_file is not None:
-            lexer = Lexer(lib_file)
-            tokens = lexer.make_tokens()
-            parser = Parser(tokens)
-            headers = parser.get_lib_headers()
-            lib_instructions = parser.parse()
-        else:
-            return
+        if lib.value.replace('.', '/') not in self.imported_libs:   # warns it was not imported but translates anyway
+            self.error(E.unk_function, self.peak(-1), lib.value)
 
-        self.advance()
-        if self.peak().type != T.sym_lpa:
-            self.error(E.sym_miss, self.peak(), '(')
+        if (not self.has_next()) or self.peak().type != T.sym_lpa:
+            self.error(E.sym_miss, self.peak(-1), '(')
         else:
             self.advance()
             while self.has_next() and self.peak().type != T.sym_rpa:
@@ -1021,33 +1015,35 @@ class Parser:
             else:
                 self.error(E.sym_miss, self.tokens[self.i - 1], ')')
 
-            outs = headers['OUTS']
-            regs = headers['REGS']
-            for reg_num in range(outs, regs + 1):      # save the registers used not part of the output
+            outs = self.lib_headers[lib.value]['OUTS']
+            regs = self.lib_headers[lib.value]['REG']
+            for reg_num in range(outs + 1, regs + 1):      # save the registers used not part of the output
                 self.add_inst(Instruction(token(T.word, 'PSH'), None, token(T.reg, f'R{reg_num}')))
 
-            for arg in inst.operands.reverse():     # push the arguments
+            for arg in inst.operands[::-1]:     # push the arguments in reverse order
                 self.add_inst(Instruction(token(T.word, 'PSH'), None, arg))
 
             lib.value = '.reserved_' + lib.value
-            self.add_inst(Instruction(token(T.word, 'CAL'), None, lib))
+            self.add_inst(Instruction(token(T.word, 'CAL'), None, token(T.label, lib.value)))
 
-            sp = token(T.reg, 'SP')
-            self.add_inst(Instruction(token(T.word, 'ADD'), None, sp, sp, token(T.imm, len(inst.operands))))  # pop args back
+            if len(inst.operands) != 0:     # pop args back
+                sp = token(T.reg, 'SP')
+                self.add_inst(Instruction(token(T.word, 'ADD'), None, sp, sp, token(T.imm, len(inst.operands))))
 
-            for reg_num in range(regs, outs - 1, -1):
+            for reg_num in range(regs, outs, -1):
                 self.add_inst(Instruction(token(T.word, 'POP'), None, token(T.reg, f'R{reg_num}')))
 
         return
 
-    def process_lib(self, lib_code):
+    def process_lib(self, lib_code, lib_name):
         lexer = Lexer(lib_code)
         lexer.make_tokens()
         parser = Parser(lexer.output, True)
         headers = parser.get_lib_headers()
         if self.compare_headers(headers):
             parser.parse()
-            return parser.instructions
+            self.lib_headers[lib_name] = headers
+            return [Instruction(token(T.label, '.reserved_' + lib_name), None)] + parser.instructions
         return
 
     def read_lib(self, name: str):
@@ -1056,13 +1052,21 @@ class Parser:
             lib_code = []
             for subdir, dirs, files in os.walk(path):
                 for file in files:
+                    lib_file_name = subdir[len(lib_root)+1:] + '/' + file[:-len(file_extension)]
+                    if lib_file_name in self.imported_libs:
+                        continue
+                    self.imported_libs.add(lib_file_name)
                     with open(os.path.join(subdir, file), 'r') as f:
-                        lib_code += self.process_lib(f.read())
+                        lib_code += self.process_lib(f.read(), lib_file_name.replace('/', '.'))
             return lib_code
-
-        elif os.path.isfile(path + ".urcl"):
-            with open(path + ".urcl", "r") as f:
-                return self.process_lib(f.read())
+        path += file_extension
+        if os.path.isfile(path):
+            lib_file_name = path[len(lib_root) + 1:-len(file_extension)]
+            if lib_file_name in self.imported_libs:
+                return
+            self.imported_libs.add(lib_file_name)
+            with open(path, "r") as f:
+                return self.process_lib(f.read(), lib_file_name.replace('/', '.'))
 
         else:   # this can be used later:   self.error(E.unk_function, self.peak(-1), name.split('.')[1])
             self.error(E.unk_library, self.peak(-1), name)
@@ -1170,7 +1174,7 @@ class Parser:
         if self.has_next():
             self.i += 1
         else:
-            self.error(E.tok_miss, self.tokens[self.i], 'Nothing')
+            self.error(E.tok_miss, self.peak(-1), 'Nothing')
 
     def has_next(self, i: int = 0):
         return self.i + i < len(self.tokens)
