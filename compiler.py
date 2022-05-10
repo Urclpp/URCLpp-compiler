@@ -1,4 +1,4 @@
-from os.path import isfile, isdir, dirname
+import os
 from sys import argv, stdout, stderr
 from enum import Enum
 from typing import List, OrderedDict
@@ -118,10 +118,12 @@ def main():
     dest_name = argv[2] if len(argv) >= 3 else None
 
     source = r'''
-IMPORT mem'''
+IMPORT mem.falloc mem.init
+
+ADD R1 R2 R3'''
 
     if source_name is not None:
-        if isfile(source_name):
+        if os.path.isfile(source_name):
             with open(source_name, mode='r') as sf:
                 source = sf.read().replace("\r", "")
         else:
@@ -468,7 +470,7 @@ def token(type: T, value=''):
 
 
 class Parser:
-    def __init__(self, tokens: List[Token]):
+    def __init__(self, tokens: List[Token], recursive: bool = False):
         self.tokens: list[Token] = tokens
         self.ids: dict[str, Id] = {}
         self.instructions: list[Instruction] = []
@@ -482,6 +484,10 @@ class Parser:
         self.macros: dict[Token] = {}
         self.labels: set(str) = set()
         self.libs: List[str] = []
+        if recursive:
+            self.lib_code = []
+        else:
+            self.lib_code = [Instruction(token(T.word, 'HLT'), None)]
         self.i = 0
 
     def error(self, error: E, tok: Token, *args):
@@ -499,13 +505,15 @@ class Parser:
             'BITS': None,
             'OUTS': None,
             'OPS': None,
-            'REGS': None
+            'REG': None
         }
         while self.has_next():
             header = self.get_opcode()
             if header.value in headers:
                 self.advance()
                 inst = Instruction(header, None)
+                if inst.opcode.value in {'BITS'}:
+                    comparrison_op = self.next_operand(inst)
                 op = self.next_operand(inst)
                 if op is not None and op.type == T.imm:
                     headers[header.value] = op.value
@@ -537,6 +545,7 @@ class Parser:
 
             self.make_instruction()
 
+        self.instructions = self.instructions + self.lib_code
         return self
 
     # loop saves the context of the nearest outer loop
@@ -989,7 +998,7 @@ class Parser:
 
         if lib.type != T.word:
             return
-        lib_file = read_lib(lib.value)
+        lib_file = self.read_lib(lib.value)
         if lib_file is not None:
             lexer = Lexer(lib_file)
             tokens = lexer.make_tokens()
@@ -1031,24 +1040,52 @@ class Parser:
 
         return
 
-    def read_lib(self, name: str):
-        path = lib_root + "/" + name.replace(".", "/") + ".urcl"
-        if not isdir(path):
-            self.error(E.unk_library, self.peak(), name.split('.')[0])
-            return
-        if not isfile(path):
-            self.error(E.unk_function, self.peak(), name.split('.')[1])
-            return
-        with open(path, "r") as f:
-            return f.read()
-
-    def make_import(self):
-        lib_name = self.next_word().value
-        lib_code = self.read_lib(lib_name)
+    def process_lib(self, lib_code):
+        lexer = Lexer(lib_code)
+        lexer.make_tokens()
+        parser = Parser(lexer.output, True)
+        headers = parser.get_lib_headers()
+        if self.compare_headers(headers):
+            parser.parse()
+            return parser.instructions
         return
 
+    def read_lib(self, name: str):
+        path = lib_root + "/" + name.replace(".", "/")
+        if os.path.isdir(path):
+            lib_code = []
+            for subdir, dirs, files in os.walk(path):
+                for file in files:
+                    with open(os.path.join(subdir, file), 'r') as f:
+                        lib_code += self.process_lib(f.read())
+            return lib_code
+
+        elif os.path.isfile(path + ".urcl"):
+            with open(path + ".urcl", "r") as f:
+                return self.process_lib(f.read())
+
+        else:   # this can be used later:   self.error(E.unk_function, self.peak(-1), name.split('.')[1])
+            self.error(E.unk_library, self.peak(-1), name)
+        return
+
+    def make_import(self):
+        inst = Instruction(token(T.word, 'IMPORT'), None)
+        self.make_operands(inst)
+        for op in inst.operands:
+            if op.type == T.word:
+                lib_code = self.read_lib(op.value)
+                if lib_code is not None:
+                    self.lib_code += lib_code
+            else:
+                self.error(E.wrong_op_type, op, op.type, T.word)
+        return
+
+    def compare_headers(self, header) -> bool:
+        # TODO
+        return True
+
     def make_define(self) -> None:
-        inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'DEFINE'), None)
+        inst = Instruction(Token(T.word, self.peak(-1).position, self.peak().line, 'DEFINE'), None)
         macro = self.next_operand(inst)
         if macro.type != T.macro:
             self.error(E.invalid_op_type, macro, macro.type, 'DEFINE')
