@@ -119,7 +119,7 @@ def main():
     dest_name = argv[2] if len(argv) >= 3 else None
 
     source = r'''
-IMPORT mem
+ADD R1[69] R2[] R3
 
 '''
 
@@ -145,7 +145,7 @@ IMPORT mem
     print(tokens, file=dest)
     print("\n", file=dest)
     
-    if len(lex_errors) > 1:
+    if len(lex_errors) > 0:
         print(lex_errors, file=stderr)
         exit(1)
     # parse
@@ -161,7 +161,7 @@ IMPORT mem
     print(parser.ids.keys(), file=dest)
     print("\n", file=dest)
 
-    if len(parser.errors) > 1:
+    if len(parser.errors) > 0:
         print(parser.errors, file=stderr)
         exit(1)
 
@@ -462,9 +462,14 @@ class Instruction:
         self.opcode = opcode
         self.operands: list[Token] = []
         self.definition: InstDef = inst_def
+        self.post_inst = None
         for op in args:
             if op is not None:
                 self.operands.append(op)
+
+    def add_inst_later(self, inst):    # adds an instruction right after the current one is added
+        self.post_inst = inst
+        return
 
     def __repr__(self) -> str:
         out = f'<INST {self.opcode}'
@@ -505,6 +510,8 @@ class Parser:
 
     def add_inst(self, inst: Instruction) -> None:
         self.instructions.append(inst)
+        if inst.post_inst is not None:
+            self.add_inst(inst.post_inst)
 
     def make_inst_def(self):
         # TODO
@@ -637,8 +644,7 @@ class Parser:
         else:
             inst = Instruction(opcode, self.get_inst_def(opcode))
             self.make_operands(inst)
-            self.instructions.append(inst)  # even if the instruction is wrong we still add it to output
-
+            self.add_inst(inst)  # even if the instruction is wrong we still add it to output
             self.check_instruction(inst)
 
         self.temp = temps   # restore that same information
@@ -668,7 +674,7 @@ class Parser:
 
         # prolly this will change in the future to accommodate for optional operands
         for op, op_def in zip(inst.operands[1:], inst.definition.operands[1:]):
-            if op_def != 'A' and operand_type[op.type] != op_def:
+            if op_def != 'A' and (op.type not in operand_type or operand_type[op.type] != op_def):
                 self.error(E.wrong_op_type, op, op, op_def)
 
         return
@@ -693,7 +699,12 @@ class Parser:
                 self.advance()
                 operand = self.make_instruction(recursive=True)
                 if self.has_next() and self.peak().type == T.sym_lbr:
-                    if operand is not None and operand.type not in {T.word, T.string}:  # these are not primitive types
+                    if operand is None:
+                        inst.operands.append(operand)
+                        self.skip_until(T.sym_rbr)
+                        self.advance()
+
+                    elif operand.type not in {T.word, T.string}:  # these are not primitive types
                         self.make_mem_index(inst, operand, operand)
                         inst.operands.append(operand)
                 else:
@@ -720,10 +731,15 @@ class Parser:
                 self.advance()
             if self.has_next() and self.peak().type == T.sym_lbr:
                 temp = self.get_tmp()
-                if temp is not None and operand.type not in {T.word, T.string}:  # these are not primitive types
+                if temp is None:
+                    inst.operands.append(operand)
+                    self.skip_until(T.sym_rbr)
+                    self.advance()
+
+                elif operand.type not in {T.word, T.string}:  # these are not primitive types
                     self.make_mem_index(inst, operand, temp)
-                    self.ret_tmp(temp)
                     inst.operands.append(temp)
+                    self.set_tmp(temp)
             else:
                 inst.operands.append(operand)
 
@@ -794,10 +810,10 @@ class Parser:
         self.advance()
         if self.has_next() and self.peak().type != T.newLine:
             if len(inst.operands) == 0:  # no operands yet -> this is the first operand
-                if operand.type in operand1_type:
+                if operand.type in operand1_type and inst.definition is not None:
                     if inst.definition.operands[0] == OpType.W:
-                        # self.add_inst(Instruction(token(T.word, 'STR'), None, temp, <dest reg here>))
-                        pass
+                        self.translate_pointer1(inst, operand, temp)
+
                     elif inst.definition.operands[0] == OpType.M:
                         self.translate_pointer(inst, operand, temp)
             else:
@@ -821,6 +837,31 @@ class Parser:
             self.add_inst(Instruction(token(T.word, 'LOD'), None, temp, temp))
         else:
             self.add_inst(Instruction(token(T.word, 'LOD'), None, temp, operand))
+        return
+
+    def translate_pointer1(self, inst: Instruction, operand, temp):
+        if self.peak().type == T.sym_rbr:
+            offset = token(T.imm, '0')
+        else:
+            self.next_operand(inst)
+            offset = inst.operands.pop()  # retrieve the operand that got added in the process
+        self.skip_until(T.sym_rbr)
+        self.advance()
+        if offset.value != '0':
+            add_inst = Instruction(token(T.word, 'ADD'), None, operand, operand, offset)
+            inst.add_inst_later(add_inst)
+            str_inst = Instruction(token(T.word, 'STR'), None, operand, temp)
+            add_inst.add_inst_later(str_inst)
+            str_inst.add_inst_later(Instruction(token(T.word, 'SUB'), None, operand, operand, offset))
+        else:
+            inst.add_inst_later(Instruction(token(T.word, 'STR'), None, temp, operand))
+
+        if self.peak().type == T.sym_lbr:
+            self.error(E.operand_expected, self.peak(), self.peak())
+            while self.peak().type == T.sym_lbr:
+                self.skip_until(T.sym_rbr)
+                self.advance()
+        self.i -= 1     # rollback 1 advance
         return
 
     def make_switch(self) -> None:
