@@ -119,6 +119,8 @@ def main():
     dest_name = argv[2] if len(argv) >= 3 else None
 
     source = r'''
+IMPORT mem
+
 '''
 
     if source_name is not None:
@@ -279,6 +281,12 @@ class Lexer:
         else:  # format: op_type:<data>
             prefix = self.p[self.i]
             self.advance()
+            if not self.has_next() or self.p[self.i] in indentation:
+                if prefix in charset:
+                    self.token(T.word, prefix)
+                else:
+                    self.error(E.illegal_char, self.p[self.i - 1])
+                return
 
             if prefix == '%':  # port
                 if self.p[self.i] in digits:
@@ -316,9 +324,9 @@ class Lexer:
                 elif prefix in 'mM#rR$':
                     try:
                         if prefix in 'rR$':  # register
-                            self.token(T.reg, 'R' + str(int(string, 0)))
+                            self.token(T.reg, 'R' + str(int(string[1:], 0)))
                         else:  # memory
-                            self.token(T.mem, 'M' + str(int(string, 0)))
+                            self.token(T.mem, 'M' + str(int(string[1:], 0)))
                     except ValueError:
                         self.token(T.word, string)
                 else:
@@ -1043,7 +1051,12 @@ class Parser:
         if self.compare_headers(headers):
             parser.parse()
             self.lib_headers[lib_name] = headers
-            return [Instruction(token(T.label, '.reserved_' + lib_name), None)] + parser.instructions
+            dependencies = []
+            for lib in parser.imported_libs:
+                if lib not in self.imported_libs:   # check and import dependencies
+                    dependencies += self.read_lib(lib)
+
+            return [Instruction(token(T.label, '.reserved_' + lib_name), None)] + parser.instructions + dependencies
         return
 
     def read_lib(self, name: str):
