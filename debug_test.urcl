@@ -1,5 +1,5 @@
 IMPORT String
-@define @var R1
+define @var R1
 ADD R1 R2
 INC @var
 LCAL String.print('e')

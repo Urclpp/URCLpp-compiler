@@ -118,10 +118,8 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None  
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''
-ADD R1[69] R2[] R3
-
-'''
+    source = r''''''
+    source_name = "debug_test.urcl"
 
     if source_name is not None:
         if os.path.isfile(source_name):
@@ -411,16 +409,34 @@ class Lexer:
         return len(self.p) > self.i + i >= 0
 
 
-class OpType(Enum):
-    R = 'Reg'
-    I = 'Imm'
-    W = 'Write'
-    M = 'Mem'
-    A = 'Any'
-    P = 'IO'
+@dataclass
+class OpType:
+    def __init__(self):
+        self.op_type = {'REG', 'IMM', 'WB', 'MEM', 'ANY', 'IO'}
+        self.operand1_type = {  # used for the first operand
+            T.label: 'MEM',
+            T.reg: 'WB',
+            T.imm: 'MEM',
+            T.char: 'IMM',
+            T.mem: 'MEM',
+            T.port: 'IO',
+            T.relative: 'MEM',
+        }
+        self.operand_type = {
+            T.label: 'IMM',
+            T.reg: 'REG',
+            T.imm: 'IMM',
+            T.char: 'IMM',
+            T.mem: 'IMM',
+            T.port: 'IMM',
+            T.relative: 'IMM',
+        }
 
     def __repr__(self) -> str:
         return self.value
+
+
+ot = OpType()
 
 
 class InstDef:
@@ -428,33 +444,13 @@ class InstDef:
         self.opcode = opcode
         self.operands: list[OpType] = []
         for op in args:
-            self.operands.append(OpType[op])    # pre: check dont pass a None or an invalid key. need to check b4
+            self.operands.append(op)    # pre: check dont pass a None or an invalid key. need to check b4
 
     def __repr__(self) -> str:
         out = f'<INSTDEF {self.opcode}'
         for op in self.operands:
             out += ' ' + str(op)
         return out + '>'
-
-
-operand1_type = {  # used for the first operand
-    T.label: OpType.M,
-    T.reg: OpType.W,
-    T.imm: OpType.M,
-    T.char: OpType.I,
-    T.mem: OpType.M,
-    T.port: OpType.P,
-    T.relative: OpType.M,
-}
-operand_type = {
-    T.label: OpType.I,
-    T.reg: OpType.R,
-    T.imm: OpType.I,
-    T.char: OpType.I,
-    T.mem: OpType.I,
-    T.port: OpType.I,
-    T.relative: OpType.I,
-}
 
 
 class Instruction:
@@ -486,17 +482,17 @@ class Parser:
     def __init__(self, tokens: List[Token], recursive: bool = False):
         self.tokens: list[Token] = tokens
         self.ids: dict[str, Id] = {}
-        self.instructions: list[Instruction] = []
-        self.inst_def: dict[InstDef] = {
-            'ADD': InstDef('ADD', 'W', 'R', 'R')
+        self.instructions: List[Instruction] = []
+        self.inst_def: Dict[InstDef] = {
+            'ADD': InstDef('ADD', 'WB', 'REG', 'REG')
         }
         self.errors: list[Error] = []
 
-        self.temp: dict[Token] = {token(T.reg, 'tmp'): True, token(T.reg, 'tmp2'): True}
+        self.temp: Dict[Token] = {token(T.reg, 'tmp'): True, token(T.reg, 'tmp2'): True}
         self.id_count = 0
-        self.macros: dict[Token] = {}
-        self.labels: set(str) = set()
-        self.lib_headers: dict[str] = {}
+        self.macros: Dict[Token] = {}
+        self.labels = set()
+        self.lib_headers: Dict[str] = {}
         self.imported_libs = set()
         self.recursive = recursive
         if recursive:
@@ -514,7 +510,21 @@ class Parser:
             self.add_inst(inst.post_inst)
 
     def make_inst_def(self):
-        # TODO
+        opcode = self.get_opcode()
+        inst_def = InstDef(opcode)
+        self.advance()
+        while self.has_next() and self.peak().type != T.newLine:
+            if self.peak().type == T.word and self.peak().value.upper() in ot.op_type:
+                inst_def.operands.append(self.peak().upper())
+            else:
+                self.error(E.wrong_op_type, self.peak(), self.peak(), 'OP_def_type')
+            self.advance()
+        self.skip_line()
+
+        if opcode not in self.inst_def:
+            self.inst_def[opcode.value] = inst_def
+        else:  # already exists a definition
+            pass
         return
 
     def get_lib_headers(self):
@@ -666,16 +676,17 @@ class Parser:
         if len(inst.operands) == 0:
             return
 
-        if operand1_type[inst.operands[0].type] != inst.definition.operands[0]:
-            self.error(E.wrong_op_type, inst.operands[0], inst.operands[0], inst.definition.operands[0])
+        if ot.operand1_type[inst.operands[0].type] != inst.definition.operands[0]:
+            self.error(E.wrong_op_type, inst.operands[0],
+                       inst.operands[0].type, ot.operand1_type[inst.definition.operands[0]])
 
         if len(inst.operands) == len(inst.definition.operands)-1:  # operand shorthands
             inst.operands.insert(1, inst.operands[0])
 
         # prolly this will change in the future to accommodate for optional operands
         for op, op_def in zip(inst.operands[1:], inst.definition.operands[1:]):
-            if op_def != 'A' and (op.type not in operand_type or operand_type[op.type] != op_def):
-                self.error(E.wrong_op_type, op, op, op_def)
+            if op_def != 'A' and (op.type not in ot.operand_type or ot.operand_type[op.type] != op_def):
+                self.error(E.wrong_op_type, op, op.type, op_def)
 
         return
 
@@ -719,7 +730,7 @@ class Parser:
                 elif value in default_macros:
                     operand = self.peak()
 
-                elif inst.opcode.value.upper() == 'DEFINE' and 'DEFINE' == self.peak(-1).value:  # 1st op of DEFINE
+                elif inst.opcode.value.upper() == 'DEFINE' and 'DEFINE' == self.peak(-1).value.upper():  # 1st op of DEFINE
                     operand = self.peak()
 
                 else:
