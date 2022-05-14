@@ -105,6 +105,7 @@ class E(Enum):
     missing_if = '{} must come after "IF" instruction'
     end_expected = 'Missing "END"'
     no_tmp = "Not enough temporary registers defined"
+    lib_error = "Error on file '{}': {}"
     str = "{}"
 
     def __repr__(self):
@@ -492,6 +493,8 @@ class Parser:
         self.id_count = 0
         self.macros: Dict[Token] = {}
         self.labels = set()
+
+        self.lib_errors = []
         self.lib_headers: Dict[str] = {}
         self.imported_libs = set()
         self.recursive = recursive
@@ -535,8 +538,8 @@ class Parser:
             'REG': None
         }
         while self.has_next():
-            header = self.get_opcode()
-            if header.value in headers:
+            header = self.next_word()
+            if header is not None and header.value in headers:
                 self.advance()
                 inst = Instruction(header, None)
                 if inst.opcode.value in {'BITS'}:
@@ -550,6 +553,7 @@ class Parser:
                 else:
                     pass    # should get error cause no headers were provided
                 break
+            self.skip_line()
         return headers
 
     def parse(self):
@@ -573,6 +577,7 @@ class Parser:
 
         if not self.recursive:
             self.instructions = self.instructions + self.lib_code
+        self.errors += self.lib_errors
         return self
 
     # loop saves the context of the nearest outer loop
@@ -1108,7 +1113,10 @@ class Parser:
                 if lib not in self.imported_libs:   # check and import dependencies
                     dependencies += self.read_lib(lib)
 
-            return [Instruction(token(T.label, '.reserved_' + lib_name), None)] + parser.instructions + dependencies
+            for error in parser.errors:
+                self.lib_errors.append(Error(E.lib_error, error.index, error.line, lib_name, error))
+            label = Instruction(token(T.label, '.reserved_' + lib_name), None)
+            return [label] + parser.instructions + dependencies
         return
 
     def read_lib(self, name: str):
@@ -1117,6 +1125,8 @@ class Parser:
             lib_code = []
             for subdir, dirs, files in os.walk(path):
                 for file in files:
+                    if not file.endswith(file_extension):
+                        continue
                     lib_file_name = subdir[len(lib_root)+1:] + '/' + file[:-len(file_extension)]
                     if lib_file_name in self.imported_libs:
                         continue
