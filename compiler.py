@@ -78,7 +78,7 @@ default_macros = {'@BITS', '@MINREG', '@MINRAM', '@HEAP', '@MINSTACK', '@MSB', '
 
 file_extension = '.urcl'
 lib_root = 'urclpp-libraries'
-default_imports = set()  # default_imports = {"inst.core", "inst.io", "inst.basic", "inst.complex"}
+default_imports = {"inst.core", "inst.io", "inst.basic", "inst.complex"}
 
 
 # ERRORS
@@ -120,7 +120,7 @@ def main():
     dest_name = argv[2] if len(argv) >= 3 else None
 
     source = r''''''
-    source_name = "debug_test.urcl"
+    # source_name = "debug_test.urcl"
 
     if source_name is not None:
         if os.path.isfile(source_name):
@@ -135,9 +135,6 @@ def main():
     if dest_name is not None:
         dest = open(dest_name, mode="w")
 
-    for lib in default_imports:
-        source = read_lib(lib) + "\n" + source
-
     tokens, lex_errors = Lexer(source).make_tokens()
 
     print("tokens:", file=dest)
@@ -148,7 +145,12 @@ def main():
         print(lex_errors, file=stderr)
         exit(1)
     # parse
-    parser = Parser(tokens).parse()
+    parser = Parser(tokens)
+
+    for lib in default_imports:     # generating all the default inst_def needed to execute the code
+        parser.read_lib(lib)
+
+    parser.parse()
 
     print("Instructions:", file=dest)
     for inst in parser.instructions:
@@ -425,7 +427,7 @@ class OpType:
         }
         self.operand_type = {
             T.label: 'IMM',
-            T.reg: 'REG',
+            T.reg: 'ANY',
             T.imm: 'IMM',
             T.char: 'IMM',
             T.mem: 'IMM',
@@ -518,7 +520,7 @@ class Parser:
         self.advance()
         while self.has_next() and self.peak().type != T.newLine:
             if self.peak().type == T.word and self.peak().value.upper() in ot.op_type:
-                inst_def.operands.append(self.peak().upper())
+                inst_def.operands.append(self.peak().value.upper())
             else:
                 self.error(E.wrong_op_type, self.peak(), self.peak(), 'OP_def_type')
             self.advance()
@@ -690,9 +692,11 @@ class Parser:
 
         # prolly this will change in the future to accommodate for optional operands
         for op, op_def in zip(inst.operands[1:], inst.definition.operands[1:]):
-            if op_def != 'A' and (op.type not in ot.operand_type or ot.operand_type[op.type] != op_def):
-                self.error(E.wrong_op_type, op, op.type, op_def)
-
+            if op.type in ot.operand_type:
+                type = ot.operand_type[op.type]
+                if op_def == 'ANY' or type == 'ANY' or type == op_def:
+                    continue
+            self.error(E.wrong_op_type, op, op.type, op_def)
         return
 
     def make_operands(self, inst: Instruction, recursive: bool = False) -> List[Token]:
