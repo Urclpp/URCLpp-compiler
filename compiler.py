@@ -415,25 +415,29 @@ class Lexer:
 @dataclass
 class OpType:
     def __init__(self):
-        self.op_type = {'REG', 'IMM', 'WB', 'MEM', 'ANY', 'IO'}
+        self.op_type = {'REG', 'IMM', 'WB', 'MEM', 'LOC', 'ANY', 'IO'}
         self.operand1_type = {  # used for the first operand
-            T.label: 'MEM',
-            T.reg: 'WB',
-            T.imm: 'MEM',
-            T.char: 'IMM',
-            T.mem: 'MEM',
-            T.port: 'IO',
-            T.relative: 'MEM',
+            'LOC': {T.reg, T.label, T.imm, T.relative},
+            'MEM': {T.reg, T.label, T.imm, T.mem},
+            'WB': {T.reg},
+            'IO': {T.port},
+            'ANY': {T.reg, T.imm, T.mem, T.label, T.char, T.relative}
         }
         self.operand_type = {
-            T.label: 'IMM',
-            T.reg: 'ANY',
-            T.imm: 'IMM',
-            T.char: 'IMM',
-            T.mem: 'IMM',
-            T.port: 'IMM',
-            T.relative: 'IMM',
+            'IO': {T.port},
+            'REG': {T.reg},
+            'IMM': {T.imm, T.mem, T.label, T.char, T.relative},
+            'ANY': {T.reg, T.imm, T.mem, T.label, T.char, T.relative}
         }
+
+    def allowed_types(self, type, op1: bool = False):
+        if op1:
+            if type in self.operand1_type:
+                return self.operand1_type[type]
+        else:
+            if type in self.operand_type:
+                return self.operand_type[type]
+        return
 
     def __repr__(self) -> str:
         return self.value
@@ -683,19 +687,19 @@ class Parser:
         if len(inst.operands) == 0:
             return
 
-        if ot.operand1_type[inst.operands[0].type] != inst.definition.operands[0]:
+        types = ot.allowed_types(inst.definition.operands[0], op1=True)
+        if types is None or inst.operands[0].type not in types:
             self.error(E.wrong_op_type, inst.operands[0],
-                       inst.operands[0].type, ot.operand1_type[inst.definition.operands[0]])
+                       inst.operands[0].type, inst.definition.operands[0])
 
         if len(inst.operands) == len(inst.definition.operands)-1:  # operand shorthands
             inst.operands.insert(1, inst.operands[0])
 
         # prolly this will change in the future to accommodate for optional operands
         for op, op_def in zip(inst.operands[1:], inst.definition.operands[1:]):
-            if op.type in ot.operand_type:
-                type = ot.operand_type[op.type]
-                if op_def == 'ANY' or type == 'ANY' or type == op_def:
-                    continue
+            types = ot.allowed_types(op_def)
+            if types is not None and op.type in types:
+                continue
             self.error(E.wrong_op_type, op, op.type, op_def)
         return
 
