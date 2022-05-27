@@ -119,8 +119,14 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None  
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r''''''
+    source = r'''IMPORT mem.falloc
+    .label1
+    
+    LCAL mem.falloc(R1)'''
     # source_name = "debug_test.urcl"
+
+    output_file_name = 'testing'
+    label_id = f'.reserved_{output_file_name}_'
 
     if source_name is not None:
         if os.path.isfile(source_name):
@@ -135,7 +141,7 @@ def main():
     if dest_name is not None:
         dest = open(dest_name, mode="w")
 
-    tokens, lex_errors = Lexer(source).make_tokens()
+    tokens, lex_errors = Lexer(source, label_id).make_tokens()
 
     print("tokens:", file=dest)
     print(tokens, file=dest)
@@ -145,7 +151,7 @@ def main():
         print(lex_errors, file=stderr)
         exit(1)
     # parse
-    parser = Parser(tokens)
+    parser = Parser(tokens, label_id)
 
     for lib in default_imports:     # generating all the default inst_def needed to execute the code
         parser.read_lib(lib)
@@ -192,13 +198,14 @@ class Error:
 
 
 class Lexer:
-    def __init__(self, program: str) -> None:
+    def __init__(self, program: str, label_id: str) -> None:
         self.p = program
         self.line_nr = 0
         self.j = 0
         self.i = 0
         self.output: list[Token] = []
         self.errors: list[Error] = []
+        self.label_id = label_id
 
     def error(self, error: E, extra: str = "") -> None:
         self.errors.append(Error(error, self.j, self.line_nr, extra))
@@ -303,7 +310,7 @@ class Lexer:
                 self.token(T.relative, prefix + str(self.make_num()))
 
             elif prefix == '.':  # label
-                self.token(T.label, prefix + self.make_word())
+                self.token(T.label, self.label_id + self.make_word())
 
             elif prefix == '@':  # macro
                 self.token(T.macro, prefix + self.make_word())
@@ -486,7 +493,7 @@ def token(type: T, value=''):
 
 
 class Parser:
-    def __init__(self, tokens: List[Token], recursive: bool = False):
+    def __init__(self, tokens: List[Token], label_id: str, recursive: bool = False):
         self.tokens: list[Token] = tokens
         self.ids: dict[str, Id] = {}
         self.instructions: List[Instruction] = []
@@ -499,6 +506,7 @@ class Parser:
         self.id_count = 0
         self.macros: Dict[Token] = {}
         self.labels = set()
+        self.label_id = label_id
 
         self.lib_errors = []
         self.lib_headers: Dict[str] = {}
@@ -1096,7 +1104,7 @@ class Parser:
             for arg in inst.operands[::-1]:     # push the arguments in reverse order
                 self.add_inst(Instruction(token(T.word, 'PSH'), None, arg))
 
-            lib.value = '.reserved_' + lib.value
+            lib.value = '.reserved_' + lib.value.replace('.', '_')
             self.add_inst(Instruction(token(T.word, 'CAL'), None, token(T.label, lib.value)))
 
             if len(inst.operands) != 0:     # pop args back
@@ -1109,9 +1117,10 @@ class Parser:
         return
 
     def process_lib(self, lib_code, lib_name):
-        lexer = Lexer(lib_code)
+        label_id = f'.reserved_{lib_name.replace(".", "_")}_'
+        lexer = Lexer(lib_code, label_id)
         lexer.make_tokens()
-        parser = Parser(lexer.output, True)
+        parser = Parser(lexer.output, label_id, recursive=True)
         headers = parser.get_lib_headers()
         if self.compare_headers(headers):
             parser.parse()
@@ -1123,7 +1132,7 @@ class Parser:
 
             for error in parser.errors:
                 self.lib_errors.append(Error(E.lib_error, error.index, error.line, lib_name, error))
-            label = Instruction(token(T.label, '.reserved_' + lib_name), None)
+            label = Instruction(token(T.label, label_id[:-1]), None)
             return [label] + parser.instructions + dependencies
         return
 
