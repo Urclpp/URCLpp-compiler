@@ -1,0 +1,84 @@
+URCL++ 2.0 documentation
+
+List of features:
+    14 new instructions
+    Operand Shorthands: Using fewer operands than those expected by the instruction
+                        Using memory values directly on the operands
+    Defining new instructions that can be used (that are not part of Main URCL)
+    Recursive instructions
+    Being able to create and import library functions to be called
+    Defining macros to be used on operands
+    Defining temporary registers to be ease the translation process of the compiler
+
+List of Future features:
+    Being able to provide translations for custom defined instructions
+    Translating instructions to its respective translation
+    Short circuiting on conditions
+    Type system
+    Code optimiser for compiler output
+
+
+New Instructions:
+    END: end marks down the end of a code block (similar to '}' character in C like languages). Code blocks start with
+        special instructions such as if, switch, while and for loops. On if chains, the code block is separated by elif,
+        meaning there is only 1 end keyword for the whole chain, and elif will act as '} else if () {'
+
+    IF: Similar to most programming languages, if the condition is met, it will execute the next code block
+
+    ELIF: Similar to python, if the new condition is met, and the previous conditions on the if chain were false, it
+        will execute the next code block
+
+    ELSE: similar to most programming languages, if none of the previous conditions were true, it will execute the next
+        code block
+
+    FOR:
+
+    WHILE:
+
+    SWITCH:
+
+    CASE:
+
+    DEFAULT:
+
+    EXIT:
+
+    SKIP:
+
+    DEFINE:
+
+    LCAL:
+
+    TEMP: temp is more of a header than instruction, but it can be used as both. It adds registers to the list of
+        registers it can be used during compile-time to translate and simplify code
+
+    INST:
+
+
+Operand Shorthands:
+    Sometimes repetitive information can be omitted, and that is the case for automatic operand completing. Here is an
+    example to illustrate how it works: INC R1 R1, it's rare to increment a register to other value other than itself.
+    So it would make sense to have INC R1 be valid. But what about 3 operand instructions? Take the example: ADD R1 R1 R2
+    In this case we can also omit the repeated source, making it ADD R1 R2.
+    Resume: If n-1 operands are presented on an n operand instruction, then the first operand will be repeated on the output code.
+
+    In C you can use * operator to reference the value pointed by a variable. We adopted the [] operator for this matter.
+    Inside the [] there can be a value. you can also append [] one after the other to have a pointer of a pointer.
+    There are 2 distinct cases: when [] is used to write to, and when [] is used when reading its value.
+    When writing, [] cannot be stacked multiple times to extend its logic multiple times.
+    Reading:
+        ADD R1 R2 R3[R4] will be compiled to
+        ADD temp temp R4
+        LOD temp temp
+        ADD R1 R2 temp
+
+    Writing:
+        ADD R1[] R2 R3 will be compiled to
+        ADD temp R2 R3
+        STR R1 temp
+
+    Note: Currently these 2 features cannot be used at the same time. using [] to write and operand shorthand collides.
+
+
+Recursive Instructions:
+    TODO

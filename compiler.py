@@ -119,10 +119,7 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None  
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''IMPORT mem.falloc
-    .label1
-    
-    LCAL mem.falloc(R1)'''
+    source = r'''ADD R1[R2] R1'''
     # source_name = "debug_test.urcl"
 
     output_file_name = 'testing'
@@ -842,11 +839,11 @@ class Parser:
         self.advance()
         if self.has_next() and self.peak().type != T.newLine:
             if len(inst.operands) == 0:  # no operands yet -> this is the first operand
-                if operand.type in operand1_type and inst.definition is not None:
-                    if inst.definition.operands[0] == OpType.W:
+                if inst.definition is not None and operand.type in ot.allowed_types(inst.definition.operands[0], True):
+                    if inst.definition.operands[0] == 'WB':
                         self.translate_pointer1(inst, operand, temp)
 
-                    elif inst.definition.operands[0] == OpType.M:
+                    elif inst.definition.operands[0] == 'LOC':
                         self.translate_pointer(inst, operand, temp)
             else:
                 self.translate_pointer(inst, operand, temp)
@@ -888,7 +885,7 @@ class Parser:
         else:
             inst.add_inst_later(Instruction(token(T.word, 'STR'), None, temp, operand))
 
-        if self.peak().type == T.sym_lbr:
+        if self.has_next() and self.peak().type == T.sym_lbr:
             self.error(E.operand_expected, self.peak(), self.peak())
             while self.peak().type == T.sym_lbr:
                 self.skip_until(T.sym_rbr)
