@@ -31,28 +31,46 @@ New Instructions:
     ELSE: similar to most programming languages, if none of the previous conditions were true, it will execute the next
         code block
 
-    FOR:
+    FOR: loops threw the next code block a fixed number of times. The first argument is the starting value, the second
+        value is the end, and the third (optional) is the step that is added to the first value at the end of each
+        iteration. It evaluates the expression at the start of each iteration, and if the first value is greater or
+        equal than the end it will stop.
 
-    WHILE:
+    WHILE: similar to most programming languages, while the condition is true it will execute the next code block.
 
-    SWITCH:
+    SWITCH: Strictly compares equality between the given value and other pre-defined values on CASE statements. It
+        creates a hash table with the hash function: order all the inputs, then offset every one with the value of the
+        smallest argument (arg-min(args)). and put them directly on a LUT (DW list). Then check if the entry is inside
+         the bounds of the table and get the address of the code to execute. If no DEFAULT statements are defined, the
+         default will be to do nothing and just ignores the switch. The unpopulated parts of the list will be programmed
+         to the default case.
 
-    CASE:
+    CASE: Adds new cases to the current SWITCH statement. The provided cases will be linked to the position of the CASE
+        statement inside the SWITCH code block. Note that EXIT are required to stop the next CASE from being executed.
 
-    DEFAULT:
+    DEFAULT: Adds a default case to the current SWITCH statement. That default case will be linked with all the empty
+        entries on the switch hash table. If no default statement is provided it will be assumed to exist and be empty.
+        Note that EXIT are required to stop the next CASE from being executed.
 
-    EXIT:
+    EXIT: Known as 'break' in most programming languages. It stops executing the current loop or switch statement.
 
-    SKIP:
+    SKIP: Known as 'continue' in most programming languages. It stops executing the current iteration on a loop, runs
+        the final statement, and branches back to the start of the next iteration.
 
-    DEFINE:
+    DEFINE: Defines a macro to be used instead of another operand. That macro is prefixed with '@' character. Can
+        replace single word operands, and same macro cannot be reassigned in later parts of the program.
 
     LCAL:
 
     TEMP: temp is more of a header than instruction, but it can be used as both. It adds registers to the list of
         registers it can be used during compile-time to translate and simplify code
 
-    INST:
+    INST: Defines how an instruction should work for the compiler. It takes the opcode and all the types of the operands
+        that make up the instruction. There are currently 7 types: 'REG', 'IMM', 'WB', 'MEM', 'LOC', 'ANY', 'IO'.
+        REG: means it must be a register
+        IMM: means it must be a literal value such as an immediate value, char, label (any value known at compile time)
+        WB: means it must be a register to be written to
+        MEM: TODO
 
 
 Operand Shorthands:

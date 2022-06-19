@@ -1,7 +1,7 @@
 import os
 from sys import argv, stdout, stderr
 from enum import Enum
-from typing import List, OrderedDict
+from typing import List, OrderedDict, Tuple
 
 from dataclasses import dataclass
 
@@ -77,6 +77,7 @@ default_macros = {'@BITS', '@MINREG', '@MINRAM', '@HEAP', '@MINSTACK', '@MSB', '
                   '@LHALF'}
 
 file_extension = '.urcl'
+file_extensionpp = '.urclpp'
 lib_root = 'urclpp-libraries'
 default_imports = {"inst.core", "inst.io", "inst.basic", "inst.complex"}
 
@@ -100,6 +101,7 @@ class E(Enum):
     duplicate_case = "Duplicate Case '{}' used"
     duplicate_default = "Duplicate Default used"
     duplicate_macro = 'Duplicate macro "{}" used'
+    duplicate_label = 'Duplicate label "{}" used'
     undefined_macro = "Undefined macro '{}' used"
     outside_loop = '{} must be used inside a loop'
     missing_if = '{} must come after "IF" instruction'
@@ -119,8 +121,8 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None  
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''ADD R1[R2] R1'''
-    # source_name = "debug_test.urcl"
+    source = r'''ADD R1 R2 R3'''
+    # source_name = "debug_test.urclpp"
 
     output_file_name = 'testing'
     label_id = f'.reserved_{output_file_name}_'
@@ -200,8 +202,8 @@ class Lexer:
         self.line_nr = 0
         self.j = 0
         self.i = 0
-        self.output: list[Token] = []
-        self.errors: list[Error] = []
+        self.output: List[Token] = []
+        self.errors: List[Error] = []
         self.label_id = label_id
 
     def error(self, error: E, extra: str = "") -> None:
@@ -451,9 +453,9 @@ ot = OpType()
 
 
 class InstDef:
-    def __init__(self, opcode: Token, *args: Token) -> None:
+    def __init__(self, opcode: str, *args: str) -> None:
         self.opcode = opcode
-        self.operands: list[OpType] = []
+        self.operands: List[str] = []
         for op in args:
             self.operands.append(op)    # pre: check dont pass a None or an invalid key. need to check b4
 
@@ -467,7 +469,7 @@ class InstDef:
 class Instruction:
     def __init__(self, opcode: Token, inst_def, *args: Token) -> None:
         self.opcode = opcode
-        self.operands: list[Token] = []
+        self.operands: List[Token] = []
         self.definition: InstDef = inst_def
         self.post_inst = None
         for op in args:
@@ -491,13 +493,13 @@ def token(type: T, value=''):
 
 class Parser:
     def __init__(self, tokens: List[Token], label_id: str, recursive: bool = False):
-        self.tokens: list[Token] = tokens
-        self.ids: dict[str, Id] = {}
+        self.tokens: List[Token] = tokens
+        self.ids: Dict[str, Id] = {}
         self.instructions: List[Instruction] = []
-        self.inst_def: Dict[InstDef] = {
+        self.inst_def: Dict[str, InstDef] = {
             'ADD': InstDef('ADD', 'WB', 'REG', 'REG')
         }
-        self.errors: list[Error] = []
+        self.errors: List[Error] = []
 
         self.temp: Dict[Token] = {token(T.reg, 'tmp'): True, token(T.reg, 'tmp2'): True}
         self.id_count = 0
@@ -525,7 +527,7 @@ class Parser:
 
     def make_inst_def(self):
         opcode = self.get_opcode()
-        inst_def = InstDef(opcode)
+        inst_def = InstDef(opcode.value)
         self.advance()
         while self.has_next() and self.peak().type != T.newLine:
             if self.peak().type == T.word and self.peak().value.upper() in ot.op_type:
@@ -576,7 +578,10 @@ class Parser:
 
             tok = self.peak()
             if tok.type == T.label:
-                self.add_inst(Instruction(tok, None))
+                if tok.value in self.labels:
+                    self.error(E.duplicate_label, tok, tok.value)
+                else:
+                    self.add_inst(Instruction(tok, None))
                 self.advance()
 
             elif tok.type == T.word:
@@ -729,7 +734,6 @@ class Parser:
                 operand = self.make_instruction(recursive=True)
                 if self.has_next() and self.peak().type == T.sym_lbr:
                     if operand is None:
-                        inst.operands.append(operand)
                         self.skip_until(T.sym_rbr)
                         self.advance()
 
@@ -776,12 +780,12 @@ class Parser:
 
     def process_scope(self, recursive=False, final_inst=None, start_label=None, end_label=None):
         while self.has_next() and (self.peak().type != T.word or self.peak().value.upper() != 'END'):
-            params: list[Instruction, Token, Token] = [final_inst, start_label, end_label]
+            params: List[Instruction, Token, Token] = [final_inst, start_label, end_label]
             self.make_instruction(recursive, params)
         if not self.has_next():
             self.error(E.end_expected, start_label)
 
-    def skip_line(self, inst: Instruction = None, error: bool = False) -> int:
+    def skip_line(self, inst: Instruction = None, error: bool = False):
         skipped = self.skip_until(T.newLine)
         if error and skipped != 0:
             self.error(E.wrong_op_num, self.peak(-skipped), inst, len(inst.operands), len(inst.operands)+skipped)
@@ -798,7 +802,7 @@ class Parser:
 
     def add_tmp(self, tmp: Token) -> None:
         if tmp is not None and tmp.type == T.reg:
-            self.temp[Token] = True
+            self.temp[tmp] = True
 
     def get_tmp(self):
         for tmp in self.temp:
@@ -897,11 +901,11 @@ class Parser:
         inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'SWITCH'), None)
 
         has_default = False
-        default_label: str = None
+        default_label = None
         end_label, start_label, id = self.get_label_helper(inst)
         case_num = 0
         cases: List[int] = []
-        switch: dict[int] = {}
+        switch: Dict[int] = {}
         dw_loc = len(self.instructions)
 
         reg: Token = self.next_operand(inst)
@@ -912,29 +916,33 @@ class Parser:
             if self.peak().type == T.word and self.peak().value.upper() == 'CASE':
                 self.advance()
                 operands: List[Token] = self.make_operands(Instruction(token(T.word, 'CASE'), None))
-                case_label = f'.reserved_case{id}_{case_num}'
-                self.labels.add(case_label)
+                case_label = token(T.label, f'.reserved_case{id}_{case_num}')
+                self.labels.add(case_label.value)
                 case_num += 1
                 for op in operands:
                     if op.type == T.imm:
                         value = int(op.value, 0)
-                        if value in cases:
-                            self.error(E.duplicate_case, op)
-                        else:
-                            cases.append(value)
-                            switch[value] = case_label
-                            self.add_inst(Instruction(token(T.label, case_label), None))
+                    elif op.type == T.char:
+                        value = ord(op.value[1:-1])
                     else:
                         self.error(E.invalid_op_type, op, op.type, inst)
+                        continue
+
+                    if value in cases:
+                        self.error(E.duplicate_case, op)
+                    else:
+                        cases.append(value)
+                        switch[value] = case_label
+                self.add_inst(Instruction(case_label, None))
 
             elif self.peak().type == T.word and self.peak().value.upper() == 'DEFAULT':
                 if has_default:
                     self.error(E.duplicate_default, self.peak())
                 else:
                     has_default = True
-                    default_label = f'.reserved_default{id}'
-                    self.labels.add(default_label)
-                    self.add_inst(Instruction(token(T.label, default_label), None))
+                    default_label = token(T.label, f'.reserved_default{id}')
+                    self.labels.add(default_label.value)
+                    self.add_inst(Instruction(default_label, None))
                     self.advance()
                     self.skip_line(inst, True)
 
@@ -966,11 +974,15 @@ class Parser:
                         address = end_label
                 dw.append(address)
 
+            smallest_case = token(T.imm, str(smallest_case))
+            biggest_case = token(T.imm, str(biggest_case))
+
             dw = str(dw).replace(',', '')
             dw = dw.replace("'", '')
+            dw = token(T.word, dw)
             # inserted in reverse order to what they are here
             self.instructions.insert(dw_loc, Instruction(token(T.word, 'DW'), None, dw))
-            self.instructions.insert(dw_loc, Instruction(token(T.label, start_label), None))
+            self.instructions.insert(dw_loc, Instruction(token(T.label, start_label.value), None))
             self.instructions.insert(dw_loc, Instruction(token(T.word, 'JMP'), None, tmp))
             self.instructions.insert(dw_loc, Instruction(token(T.word, 'LOD'), None, tmp, tmp))
             self.instructions.insert(dw_loc, Instruction(token(T.word, 'ADD'), None, tmp, tmp, start_label))
@@ -1002,7 +1014,7 @@ class Parser:
                     self.error(E.missing_if, self.peak(), self.peak())
                 else:
                     self.add_inst(Instruction(token(T.word, 'JMP'), None, end_label))
-                    self.labels.add(next_label)
+                    self.labels.add(next_label.value)
                     self.add_inst(Instruction(next_label, None))
                     self.advance()
                     else_count += 1
@@ -1016,7 +1028,7 @@ class Parser:
                 else:
                     else_done = True
                     self.add_inst(Instruction(token(T.word, 'JMP'), None, end_label))
-                    self.labels.add(next_label)
+                    self.labels.add(next_label.value)
                     self.add_inst(Instruction(next_label, None))
                     self.advance()
                     self.skip_line(inst, True)
@@ -1024,9 +1036,9 @@ class Parser:
                 self.make_instruction(loop=loop)
 
         if not else_done:
-            self.labels.add(next_label)
+            self.labels.add(next_label.value)
             self.add_inst(Instruction(next_label, None))
-        self.labels.add(end_label)
+        self.labels.add(end_label.value)
         self.add_inst(Instruction(end_label, None))
 
         # self.advance()
@@ -1038,7 +1050,7 @@ class Parser:
         reg = self.next_operand(inst)
         end_num = self.next_operand(inst)
 
-        self.labels.add(start_label)
+        self.labels.add(start_label.value)
         self.add_inst(Instruction(start_label, None))
         self.add_inst(Instruction(token(T.word, 'BGE'), end_label, reg, end_num))
 
@@ -1053,14 +1065,14 @@ class Parser:
 
         self.add_inst(end_statement)
         self.add_inst(Instruction(token(T.word, 'JMP'), None, start_label))
-        self.labels.add(end_label)
+        self.labels.add(end_label.value)
         self.add_inst(Instruction(end_label, None))
         return
 
     def make_while(self, recursive=False) -> None:
         inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'WHILE'), None)
         end_label, start_label, id = self.get_label_helper(inst)
-        self.labels.add(start_label)
+        self.labels.add(start_label.value)
         self.add_inst(Instruction(start_label, None))
 
         self.do_condition(inst, end_label, id)
@@ -1068,7 +1080,7 @@ class Parser:
         self.process_scope(recursive, None, start_label, end_label)
 
         self.add_inst(Instruction(token(T.word, 'JMP'), None, start_label))
-        self.labels.add(end_label)
+        self.labels.add(end_label.value)
         self.add_inst(Instruction(end_label, None))
         return
 
@@ -1106,7 +1118,7 @@ class Parser:
 
             if len(inst.operands) != 0:     # pop args back
                 sp = token(T.reg, 'SP')
-                self.add_inst(Instruction(token(T.word, 'ADD'), None, sp, sp, token(T.imm, len(inst.operands))))
+                self.add_inst(Instruction(token(T.word, 'ADD'), None, sp, sp, token(T.imm, str(len(inst.operands)))))
 
             for reg_num in range(regs, outs, -1):
                 self.add_inst(Instruction(token(T.word, 'POP'), None, token(T.reg, f'R{reg_num}')))
@@ -1130,7 +1142,7 @@ class Parser:
             for error in parser.errors:
                 self.lib_errors.append(Error(E.lib_error, error.index, error.line, lib_name, error))
             label = Instruction(token(T.label, label_id[:-1]), None)
-            return [label] + parser.instructions + dependencies
+            return [label] + parser.instructions + dependencies, parser.inst_def
         return
 
     def read_lib(self, name: str):
@@ -1146,16 +1158,32 @@ class Parser:
                         continue
                     self.imported_libs.add(lib_file_name)
                     with open(os.path.join(subdir, file), 'r') as f:
-                        lib_code += self.process_lib(f.read(), lib_file_name.replace('/', '.'))
+                        code, inst_defs = self.process_lib(f.read(), lib_file_name.replace('/', '.'))
+                        lib_code += code
+                        self.inst_def.update(inst_defs)
             return lib_code
-        path += file_extension
-        if os.path.isfile(path):
+
+        elif os.path.isfile(path + file_extension):
+            path += file_extension
             lib_file_name = path[len(lib_root) + 1:-len(file_extension)]
             if lib_file_name in self.imported_libs:
                 return
             self.imported_libs.add(lib_file_name)
             with open(path, "r") as f:
-                return self.process_lib(f.read(), lib_file_name.replace('/', '.'))
+                code, inst_defs = self.process_lib(f.read(), lib_file_name.replace('/', '.'))
+                self.inst_def.update(inst_defs)
+                return code
+
+        elif os.path.isfile(path + file_extensionpp):
+            path += file_extensionpp
+            lib_file_name = path[len(lib_root) + 1:-len(file_extensionpp)]
+            if lib_file_name in self.imported_libs:
+                return
+            self.imported_libs.add(lib_file_name)
+            with open(path, "r") as f:
+                code, inst_defs = self.process_lib(f.read(), lib_file_name.replace('/', '.'))
+                self.inst_def.update(inst_defs)
+                return code
 
         else:   # this can be used later:   self.error(E.unk_function, self.peak(-1), name.split('.')[1])
             self.error(E.unk_library, self.peak(-1), name)
@@ -1190,7 +1218,7 @@ class Parser:
             self.macros[macro.value] = value
         return
 
-    def get_label_helper(self, inst: Instruction) -> Token:
+    def get_label_helper(self, inst: Instruction) -> Tuple[Token, Token, int]:
         end_label = token(T.label, f'.reserved_end{self.id_count}')
         loop_label = token(T.label, f'.reserved_{inst.opcode.value}{self.id_count}')
         self.id_count += 1
@@ -1244,7 +1272,7 @@ class Parser:
         if self.has_next():
             while len(stack) > 0:
                 if stack[-1].type == T.sym_lpa:
-                    self.error(E.sym_miss, ')')
+                    self.errors.append(Error(E.sym_miss, self.peak(-1).position, self.peak(-1).line, ')'))
                 else:
                     queue.append(stack[-1])
         else:
