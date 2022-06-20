@@ -142,9 +142,9 @@ def main():
 
     tokens, lex_errors = Lexer(source, label_id).make_tokens()
 
-    print("tokens:", file=dest)
-    print(tokens, file=dest)
-    print("\n", file=dest)
+    # print("tokens:", file=dest)
+    # print(tokens, file=dest)
+    # print("\n", file=dest)
     
     if len(lex_errors) > 0:
         print(lex_errors, file=stderr)
@@ -157,15 +157,15 @@ def main():
 
     parser.parse()
 
-    print("Instructions:", file=dest)
+    # print("Instructions:", file=dest)
     for inst in parser.instructions:
-        print(inst, file=dest)
+        print(inst.to_string(), file=dest)
     # print(parser.instructions, file=dest)
     print("\n", file=dest)
 
-    print("Identifiers:", file=dest)
-    print(parser.ids.keys(), file=dest)
-    print("\n", file=dest)
+    # print("Identifiers:", file=dest)
+    # print(parser.ids.keys(), file=dest)
+    # print("\n", file=dest)
 
     if len(parser.errors) > 0:
         print(parser.errors, file=stderr)
@@ -381,7 +381,11 @@ class Lexer:
     def make_num(self) -> int:
         if self.p[self.i] == ' ':
             return 0
-        num = ''
+        if self.p[self.i] in '+-':
+            num = self.p[self.i]
+            self.advance()
+        else:
+            num = ''
         while self.has_next() and self.p[self.i] not in indentation:
             if self.p[self.i] in symbols:
                 break
@@ -480,6 +484,12 @@ class Instruction:
         self.post_inst = inst
         return
 
+    def to_string(self):
+        string = self.opcode.value
+        for op in self.operands:
+            string += ' ' + op.value
+        return string
+
     def __repr__(self) -> str:
         out = f'<INST {self.opcode}'
         for op in self.operands:
@@ -496,9 +506,7 @@ class Parser:
         self.tokens: List[Token] = tokens
         self.ids: Dict[str, Id] = {}
         self.instructions: List[Instruction] = []
-        self.inst_def: Dict[str, InstDef] = {
-            'ADD': InstDef('ADD', 'WB', 'REG', 'REG')
-        }
+        self.inst_def: Dict[str, InstDef] = {}
         self.errors: List[Error] = []
 
         self.temp: Dict[Token] = {token(T.reg, 'tmp'): True, token(T.reg, 'tmp2'): True}
@@ -535,7 +543,6 @@ class Parser:
             else:
                 self.error(E.wrong_op_type, self.peak(), self.peak(), 'OP_def_type')
             self.advance()
-        self.skip_line()
 
         if opcode not in self.inst_def:
             self.inst_def[opcode.value] = inst_def
