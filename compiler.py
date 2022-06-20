@@ -118,13 +118,12 @@ usage = """usage: urclpp <source_file> <destination_file>"""
 
 
 def main():
-    source_name = argv[1] if len(argv) >= 2 else None  
+    source_name = argv[1] if len(argv) >= 2 else None
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''ADD R1 R2 R3'''
-    # source_name = "debug_test.urclpp"
+    source = r''''''
 
-    output_file_name = 'testing'
+    output_file_name = dest_name
     label_id = f'.reserved_{output_file_name}_'
 
     if source_name is not None:
@@ -145,14 +144,14 @@ def main():
     # print("tokens:", file=dest)
     # print(tokens, file=dest)
     # print("\n", file=dest)
-    
+
     if len(lex_errors) > 0:
         print(lex_errors, file=stderr)
         exit(1)
     # parse
     parser = Parser(tokens, label_id)
 
-    for lib in default_imports:     # generating all the default inst_def needed to execute the code
+    for lib in default_imports:  # generating all the default inst_def needed to execute the code
         parser.read_lib(lib)
 
     parser.parse()
@@ -168,7 +167,8 @@ def main():
     # print("\n", file=dest)
 
     if len(parser.errors) > 0:
-        print(parser.errors, file=stderr)
+        for err in parser.errors:
+            print(err, file=stderr)
         exit(1)
 
     return
@@ -180,7 +180,7 @@ class Token:
         self.position = pos
         self.line = line
         self.value = value
-    
+
     def __repr__(self) -> str:
         return f"<{self.type} {self.value}>"
 
@@ -230,7 +230,7 @@ class Lexer:
                     else:  # you got your hopes high, but it was just an illegal char :/
                         self.error(E.illegal_char, '/')
 
-                elif self.p[self.i] in symbols or self.p[self.i] in {'=', '!'}:    # gotta check for first char of all
+                elif self.p[self.i] in symbols or self.p[self.i] in {'=', '!'}:  # gotta check for first char of all
                     self.make_symbol()
                     self.advance()
                 else:
@@ -240,14 +240,14 @@ class Lexer:
 
     def make_symbol(self):
         if self.p[self.i] == '<':
-            if self.has_next(1) and self.p[self.i+1] == '=':
+            if self.has_next(1) and self.p[self.i + 1] == '=':
                 self.token(symbols['<='])
                 self.advance()
             else:
                 self.token(symbols['<'])
 
         elif self.p[self.i] == '>':
-            if self.has_next(1) and self.p[self.i+1] == '=':
+            if self.has_next(1) and self.p[self.i + 1] == '=':
                 self.token(symbols['>='])
                 self.advance()
             else:
@@ -267,11 +267,11 @@ class Lexer:
             else:
                 self.error(E.illegal_char, self.p[self.i])
 
-        elif self.p[self.i] == '&' and self.has_next(1) and self.p[self.i+1] == '&':
+        elif self.p[self.i] == '&' and self.has_next(1) and self.p[self.i + 1] == '&':
             self.advance()
             self.token(T.sym_and)
 
-        elif self.p[self.i] == '|' and self.has_next(1) and self.p[self.i+1] == '|':
+        elif self.p[self.i] == '|' and self.has_next(1) and self.p[self.i + 1] == '|':
             self.advance()
             self.token(T.sym_or)
 
@@ -283,7 +283,7 @@ class Lexer:
 
     def make_operand(self, indexed: bool = False) -> None:
         if self.p[self.i] in digits + '+-':  # immediate value
-            self.token(T.imm, str(self.make_num()))
+            self.token(T.imm, self.make_num())
 
         else:  # format: op_type:<data>
             prefix = self.p[self.i]
@@ -343,7 +343,7 @@ class Lexer:
             #    self.token()
 
             else:  # unknown symbol
-                self.error(E.illegal_char, self.p[self.i-1])
+                self.error(E.illegal_char, self.p[self.i - 1])
 
         if self.has_next() and self.p[self.i] == '\n':
             self.new_line()
@@ -436,6 +436,8 @@ class OpType:
         self.operand_type = {
             'IO': {T.port},
             'REG': {T.reg},
+            'MEM': {T.reg, T.label, T.imm, T.mem},
+            'LOC': {T.reg, T.label, T.imm, T.relative},
             'IMM': {T.imm, T.mem, T.label, T.char, T.relative},
             'ANY': {T.reg, T.imm, T.mem, T.label, T.char, T.relative}
         }
@@ -461,7 +463,7 @@ class InstDef:
         self.opcode = opcode
         self.operands: List[str] = []
         for op in args:
-            self.operands.append(op)    # pre: check dont pass a None or an invalid key. need to check b4
+            self.operands.append(op)  # pre: check dont pass a None or an invalid key. need to check b4
 
     def __repr__(self) -> str:
         out = f'<INSTDEF {self.opcode}'
@@ -480,14 +482,17 @@ class Instruction:
             if op is not None:
                 self.operands.append(op)
 
-    def add_inst_later(self, inst):    # adds an instruction right after the current one is added
+    def add_inst_later(self, inst):  # adds an instruction right after the current one is added
         self.post_inst = inst
         return
 
     def to_string(self):
         string = self.opcode.value
         for op in self.operands:
-            string += ' ' + op.value
+            if op.type == T.imm:
+                string += ' ' + str(op.value)
+            else:
+                string += ' ' + op.value
         return string
 
     def __repr__(self) -> str:
@@ -566,12 +571,12 @@ class Parser:
                     comparison_op = self.next_operand(inst)
                 op = self.next_operand(inst)
                 if op is not None and op.type == T.imm:
-                    headers[header.value] = int(op.value, 0)
-            else:   # headers are over
+                    headers[header.value] = op.value
+            else:  # headers are over
                 if self.i != 0:
                     self.i -= 1
                 else:
-                    pass    # should get error cause no headers were provided
+                    pass  # should get error cause no headers were provided
                 break
             self.skip_line()
         return headers
@@ -613,7 +618,7 @@ class Parser:
         if not self.has_next():
             return
 
-        temps: Dict[Token] = self.temp.copy()   # save the current state of the temps
+        temps: Dict[Token] = self.temp.copy()  # save the current state of the temps
 
         opcode_str = opcode.value.upper()
         if recursive:
@@ -637,11 +642,11 @@ class Parser:
             if loop is None:
                 self.error(E.outside_loop, self.peak(-1), self.peak(-1))
             else:
-                if loop[0] is not None:     # while loops dont have a final statement
+                if loop[0] is not None:  # while loops dont have a final statement
                     self.add_inst(loop[0])
                 self.add_inst(Instruction(token(T.word, 'JMP'), None, loop[1]))
 
-        elif opcode_str == 'END':   # ends are recognized by the funcs that use them, so we will ignore them here
+        elif opcode_str == 'END':  # ends are recognized by the funcs that use them, so we will ignore them here
             pass
 
         elif opcode_str == 'SWITCH':
@@ -665,13 +670,16 @@ class Parser:
         elif opcode_str == 'LCAL':
             self.make_lcal()
 
+        elif opcode_str == 'DW':
+            self.make_dw()
+
         # # # # # # # # # # # # HEADERS # # # # # # # # # # # #
 
         elif opcode_str == 'IMPORT':
             self.make_import()
 
         elif opcode_str == 'TEMP':
-            inst = Instruction(token(T.word, 'temp'), None)   # Warning: possible for [] to generate undesired code
+            inst = Instruction(token(T.word, 'temp'), None)  # Warning: possible for [] to generate undesired code
             self.make_operands(inst)
             for tmp in inst.operands:
                 self.add_tmp(tmp)
@@ -685,7 +693,7 @@ class Parser:
             self.add_inst(inst)  # even if the instruction is wrong we still add it to output
             self.check_instruction(inst)
 
-        self.temp = temps   # restore that same information
+        self.temp = temps  # restore that same information
         self.skip_line()
         return
 
@@ -697,9 +705,9 @@ class Parser:
             return
 
     def check_instruction(self, inst: Instruction) -> None:
-        if inst.definition is None:     # didnt recognize the instruction, so no point in type checking
+        if inst.definition is None:  # didnt recognize the instruction, so no point in type checking
             return
-        if len(inst.operands) > len(inst.definition.operands):     # we will ignore extra operands, but provide an error
+        if len(inst.operands) > len(inst.definition.operands):  # we will ignore extra operands, but provide an error
             self.error(E.wrong_op_num, inst.opcode, inst.opcode, len(inst.definition.operands), len(inst.operands))
         if len(inst.operands) == 0:
             return
@@ -709,7 +717,7 @@ class Parser:
             self.error(E.wrong_op_type, inst.operands[0],
                        inst.operands[0].type, inst.definition.operands[0])
 
-        if len(inst.operands) == len(inst.definition.operands)-1:  # operand shorthands
+        if len(inst.operands) == len(inst.definition.operands) - 1:  # operand shorthands
             inst.operands.insert(1, inst.operands[0])
 
         # prolly this will change in the future to accommodate for optional operands
@@ -759,7 +767,8 @@ class Parser:
                 elif value in default_macros:
                     operand = self.peak()
 
-                elif inst.opcode.value.upper() == 'DEFINE' and 'DEFINE' == self.peak(-1).value.upper():  # 1st op of DEFINE
+                elif inst.opcode.value.upper() == 'DEFINE' and 'DEFINE' == self.peak(
+                        -1).value.upper():  # 1st op of DEFINE
                     operand = self.peak()
 
                 else:
@@ -795,7 +804,7 @@ class Parser:
     def skip_line(self, inst: Instruction = None, error: bool = False):
         skipped = self.skip_until(T.newLine)
         if error and skipped != 0:
-            self.error(E.wrong_op_num, self.peak(-skipped), inst, len(inst.operands), len(inst.operands)+skipped)
+            self.error(E.wrong_op_num, self.peak(-skipped), inst, len(inst.operands), len(inst.operands) + skipped)
         if self.has_next():
             self.advance()
         return
@@ -843,7 +852,7 @@ class Parser:
         if self.has_next():
             return self.peak()
         else:
-            self.error(E.word_miss, self.tokens[self.i-1], 'nothing')
+            self.error(E.word_miss, self.tokens[self.i - 1], 'nothing')
             return
 
     def make_mem_index(self, inst: Instruction, operand, temp):
@@ -866,13 +875,13 @@ class Parser:
 
     def translate_pointer(self, inst: Instruction, operand, temp):
         if self.peak().type == T.sym_rbr:
-            offset = token(T.imm, '0')
+            offset = token(T.imm, 0)
         else:
             self.next_operand(inst)
             offset = inst.operands.pop()  # retrieve the operand that got added in the process
         self.skip_until(T.sym_rbr)
 
-        if offset.value != '0':
+        if offset.value != 0:
             self.add_inst(Instruction(token(T.word, 'ADD'), None, temp, operand, offset))
             self.add_inst(Instruction(token(T.word, 'LOD'), None, temp, temp))
         else:
@@ -881,7 +890,7 @@ class Parser:
 
     def translate_pointer1(self, inst: Instruction, operand, temp):
         if self.peak().type == T.sym_rbr:
-            offset = token(T.imm, '0')
+            offset = token(T.imm, 0)
         else:
             self.next_operand(inst)
             offset = inst.operands.pop()  # retrieve the operand that got added in the process
@@ -901,11 +910,11 @@ class Parser:
             while self.peak().type == T.sym_lbr:
                 self.skip_until(T.sym_rbr)
                 self.advance()
-        self.i -= 1     # rollback 1 advance
+        self.i -= 1  # rollback 1 advance
         return
 
     def make_switch(self) -> None:
-        inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'SWITCH'), None)
+        inst = Instruction(Token(T.word, self.peak().position - 1, self.peak().line, 'SWITCH'), None)
 
         has_default = False
         default_label = None
@@ -928,7 +937,7 @@ class Parser:
                 case_num += 1
                 for op in operands:
                     if op.type == T.imm:
-                        value = int(op.value, 0)
+                        value = op.value
                     elif op.type == T.char:
                         value = ord(op.value[1:-1])
                     else:
@@ -981,8 +990,8 @@ class Parser:
                         address = end_label
                 dw.append(address)
 
-            smallest_case = token(T.imm, str(smallest_case))
-            biggest_case = token(T.imm, str(biggest_case))
+            smallest_case = token(T.imm, smallest_case)
+            biggest_case = token(T.imm, biggest_case)
 
             dw = str(dw).replace(',', '')
             dw = dw.replace("'", '')
@@ -1007,7 +1016,7 @@ class Parser:
         return
 
     def make_if(self, loop=None) -> None:
-        inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'IF'), None)
+        inst = Instruction(Token(T.word, self.peak().position - 1, self.peak().line, 'IF'), None)
         else_done = False
         else_count = 0
         end_label, start_label, id = self.get_label_helper(inst)  # end_label, start_label are not used
@@ -1026,7 +1035,7 @@ class Parser:
                     self.advance()
                     else_count += 1
                     next_label = token(T.label, f'.reserved_else{id}_{else_count}')
-                    inst.operands = []      # clean the previous if/elif condition operands
+                    inst.operands = []  # clean the previous if/elif condition operands
                     self.do_condition(inst, next_label, id)
 
             elif self.peak().type == T.word and self.peak().value.upper() == 'ELSE':
@@ -1047,12 +1056,10 @@ class Parser:
             self.add_inst(Instruction(next_label, None))
         self.labels.add(end_label.value)
         self.add_inst(Instruction(end_label, None))
-
-        # self.advance()
         return
 
     def make_for(self, recursive=False) -> None:
-        inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'FOR'), None)
+        inst = Instruction(Token(T.word, self.peak().position - 1, self.peak().line, 'FOR'), None)
         end_label, start_label, id = self.get_label_helper(inst)
         reg = self.next_operand(inst)
         end_num = self.next_operand(inst)
@@ -1065,7 +1072,7 @@ class Parser:
             value_to_add = self.next_operand(inst)
             end_statement: Instruction = Instruction(token(T.word, 'ADD'), None, reg, reg, value_to_add)
         else:
-            end_statement: Instruction = Instruction(token(T.word, 'ADD'), None, reg, reg, token(T.imm, '1'))
+            end_statement: Instruction = Instruction(token(T.word, 'ADD'), None, reg, reg, token(T.imm, 1))
         self.skip_line(inst, True)
 
         self.process_scope(recursive, end_statement, start_label, end_label)
@@ -1077,7 +1084,7 @@ class Parser:
         return
 
     def make_while(self, recursive=False) -> None:
-        inst = Instruction(Token(T.word, self.peak().position-1, self.peak().line, 'WHILE'), None)
+        inst = Instruction(Token(T.word, self.peak().position - 1, self.peak().line, 'WHILE'), None)
         end_label, start_label, id = self.get_label_helper(inst)
         self.labels.add(start_label.value)
         self.add_inst(Instruction(start_label, None))
@@ -1094,10 +1101,10 @@ class Parser:
     def make_lcal(self) -> None:
         inst = Instruction(Token(T.word, self.peak(-1).position, self.peak(-1).line, 'LCAL'), None)
         lib = self.next_operand(inst)
-        inst.operands = []      # clean the list, so we can use it for func args
+        inst.operands = []  # clean the list, so we can use it for func args
         if lib.type != T.word:
             return
-        if lib.value.replace('.', '/') not in self.imported_libs:   # warns it was not imported but translates anyway
+        if lib.value.replace('.', '/') not in self.imported_libs:  # warns it was not imported but translates anyway
             self.error(E.unk_function, self.peak(-1), lib.value)
 
         if (not self.has_next()) or self.peak().type != T.sym_lpa:
@@ -1114,18 +1121,18 @@ class Parser:
 
             outs = self.lib_headers[lib.value]['OUTS']
             regs = self.lib_headers[lib.value]['REG']
-            for reg_num in range(outs + 1, regs + 1):      # save the registers used not part of the output
+            for reg_num in range(outs + 1, regs + 1):  # save the registers used not part of the output
                 self.add_inst(Instruction(token(T.word, 'PSH'), None, token(T.reg, f'R{reg_num}')))
 
-            for arg in inst.operands[::-1]:     # push the arguments in reverse order
+            for arg in inst.operands[::-1]:  # push the arguments in reverse order
                 self.add_inst(Instruction(token(T.word, 'PSH'), None, arg))
 
             lib.value = '.reserved_' + lib.value.replace('.', '_')
             self.add_inst(Instruction(token(T.word, 'CAL'), None, token(T.label, lib.value)))
 
-            if len(inst.operands) != 0:     # pop args back
+            if len(inst.operands) != 0:  # pop args back
                 sp = token(T.reg, 'SP')
-                self.add_inst(Instruction(token(T.word, 'ADD'), None, sp, sp, token(T.imm, str(len(inst.operands)))))
+                self.add_inst(Instruction(token(T.word, 'ADD'), None, sp, sp, token(T.imm, len(inst.operands))))
 
             for reg_num in range(regs, outs, -1):
                 self.add_inst(Instruction(token(T.word, 'POP'), None, token(T.reg, f'R{reg_num}')))
@@ -1133,17 +1140,19 @@ class Parser:
         return
 
     def process_lib(self, lib_code, lib_name):
-        label_id = f'.reserved_{lib_name.replace(".", "_")}_'
+        lib_name_replaced = lib_name.replace(".", "_")
+        label_id = f'.reserved_{lib_name_replaced}_'
         lexer = Lexer(lib_code, label_id)
         lexer.make_tokens()
         parser = Parser(lexer.output, label_id, recursive=True)
+        parser.inst_def = self.inst_def
         headers = parser.get_lib_headers()
         if self.compare_headers(headers):
             parser.parse()
             self.lib_headers[lib_name] = headers
             dependencies = []
             for lib in parser.imported_libs:
-                if lib not in self.imported_libs:   # check and import dependencies
+                if lib not in self.imported_libs:  # check and import dependencies
                     dependencies += self.read_lib(lib)
 
             for error in parser.errors:
@@ -1160,7 +1169,7 @@ class Parser:
                 for file in files:
                     if not file.endswith(file_extension):
                         continue
-                    lib_file_name = subdir[len(lib_root)+1:] + '/' + file[:-len(file_extension)]
+                    lib_file_name = subdir[len(lib_root) + 1:] + '/' + file[:-len(file_extension)]
                     if lib_file_name in self.imported_libs:
                         continue
                     self.imported_libs.add(lib_file_name)
@@ -1192,7 +1201,7 @@ class Parser:
                 self.inst_def.update(inst_defs)
                 return code
 
-        else:   # this can be used later:   self.error(E.unk_function, self.peak(-1), name.split('.')[1])
+        else:  # this can be used later:   self.error(E.unk_function, self.peak(-1), name.split('.')[1])
             self.error(E.unk_library, self.peak(-1), name)
         return
 
@@ -1225,11 +1234,40 @@ class Parser:
             self.macros[macro.value] = value
         return
 
+    def make_dw(self):
+        inst = Instruction(Token(T.word, self.peak().position - 1, self.peak().line, 'DW'), None)
+        if self.peak().type == T.string or self.peak().type == T.char:
+            string = list(self.peak().value)[1:-1]
+            length = len(string)
+            string.insert(0, length)
+            inst.operands.append(token(T.string, str(string).replace(',', '')))
+
+        elif self.peak().type == T.sym_lbr:
+            self.advance()
+            self.make_operands(inst)
+            args = []
+            for element in inst.operands:
+                if element.type == T.sym_rbr:
+                    break
+                if element.type in {T.imm, T.label, T.char, T.mem}:
+                    args.append(element.value)
+                else:
+                    self.error(E.wrong_op_type, element, element.type, 'Imm literal')
+
+            inst.operands = [token(T.word, str(args).replace(',', ''))]
+
+        else:  # error perhaps cause nothing
+            self.error(E.sym_miss, self.peak(), '[')
+            return
+
+        self.add_inst(inst)
+        return
+
     def get_label_helper(self, inst: Instruction) -> Tuple[Token, Token, int]:
         end_label = token(T.label, f'.reserved_end{self.id_count}')
         loop_label = token(T.label, f'.reserved_{inst.opcode.value}{self.id_count}')
         self.id_count += 1
-        return end_label, loop_label, self.id_count-1
+        return end_label, loop_label, self.id_count - 1
 
     def do_condition(self, inst: Instruction, label: Token, id):
         operands = self.make_operands(inst)
@@ -1288,11 +1326,11 @@ class Parser:
         return queue
 
     def peak(self, j=0) -> Token:
-        return self.tokens[self.i+j]
+        return self.tokens[self.i + j]
 
     def next(self) -> Token:
         self.i += 1
-        return self.tokens[self.i-1]
+        return self.tokens[self.i - 1]
 
     def advance(self):
         if self.has_next():
