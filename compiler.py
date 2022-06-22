@@ -2,6 +2,7 @@ import os
 from sys import argv, stdout, stderr
 from enum import Enum
 from typing import List, OrderedDict, Tuple
+from math import frexp
 
 from dataclasses import dataclass
 
@@ -86,6 +87,7 @@ default_imports = {"inst.core", "inst.io", "inst.basic", "inst.complex"}
 class E(Enum):
     illegal_char = "Illegal Char '{}'"
     invalid_char = "Invalid Character {}"
+    invalid_literal = "Invalid literal for imm value {}"
     unk_port = "Unknown port name '{}'"
     unk_library = "Unknown library name '{}'"
     unk_function = "Unknown library function '{}'"
@@ -121,7 +123,7 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r''''''
+    source = r'''ADD R1 0b101e10fx10 R3'''
 
     output_file_name = dest_name
     label_id = f'.reserved_{output_file_name}_'
@@ -281,9 +283,9 @@ class Lexer:
             except KeyError:
                 self.error(E.illegal_char, self.p[self.i])
 
-    def make_operand(self, indexed: bool = False) -> None:
+    def make_operand(self) -> None:
         if self.p[self.i] in digits + '+-':  # immediate value
-            self.token(T.imm, self.make_num())
+            self.token(T.imm, self.make_number())
 
         else:  # format: op_type:<data>
             prefix = self.p[self.i]
@@ -297,7 +299,7 @@ class Lexer:
 
             if prefix == '%':  # port
                 if self.p[self.i] in digits:
-                    self.token(T.port, '%' + str(self.make_num()))
+                    self.token(T.port, '%' + str(self.make_int()))
                 else:
                     name = self.make_word()
                     if name in port_names:
@@ -306,7 +308,7 @@ class Lexer:
                         self.error(E.unk_port, name)
 
             elif prefix == '~':  # relative
-                self.token(T.relative, prefix + str(self.make_num()))
+                self.token(T.relative, prefix + str(self.make_int()))
 
             elif prefix == '.':  # label
                 self.token(T.label, self.label_id + self.make_word())
@@ -349,6 +351,150 @@ class Lexer:
             self.new_line()
             self.advance()
 
+    def make_number(self):   # can create errors if imm is the last thing on file
+        if self.p[self.i] in '+-':  # detecting sign
+            num = self.p[self.i]
+            self.advance()
+        else:
+            num = ''
+        base = 10
+        if self.has_next(1) and self.p[self.i] == '0':   # detecting the base
+            num += '0'
+            self.advance()
+            if self.p[self.i].lower() == 'x':
+                base = 16
+            elif self.p[self.i].lower() == 'd':
+                base = 10
+            elif self.p[self.i].lower() == 'o':
+                base = 8
+            elif self.p[self.i].lower() == 'b':
+                base = 2
+            else:
+                num += self.p[self.i]
+            self.advance()
+        integer = 0
+        decimals = ''
+        exponent = ''
+        has_point = False
+        has_exponent = False
+        while self.has_next() and self.p[self.i] in digits + '.fe':
+            if has_point:
+                if self.p[self.i] == '.':
+                    self.error(E.illegal_char, self.p[self.i])
+                    break
+                elif self.p[self.i] == 'e':
+                    if has_exponent:
+                        self.error(E.illegal_char, self.p[self.i])
+                        break
+                    else:
+                        has_exponent = True
+                elif self.p[self.i] == 'f':
+                    self.advance()
+                    if exponent == '':
+                        exponent = 0
+                    else:
+                        exponent = int(exponent, base)
+                    decimals = int(decimals, base) / (base ** len(decimals))
+                    integer += decimals
+                    integer *= (base ** exponent)
+                    if self.p[self.i] == 'x':  # its a fixed point
+                        self.advance()
+                        offset = self.make_int(base)
+                        integer *= offset
+                        integer = int(integer)
+                        return integer
+                    else:  # its a float
+                        if self.p[self.i] in indentation:
+                            bits = 32
+                        else:
+                            bits = self.make_int()
+                            if bits not in {16, 32, 64}:
+                                self.error(E.invalid_literal, bits)
+                        return self.make_float(integer, bits)
+                elif has_exponent:
+                    exponent += self.p[self.i]
+                else:
+                    decimals += self.p[self.i]
+            elif self.p[self.i] == '.':
+                has_point = True
+                integer = int(num, base)
+            elif self.p[self.i] == 'f':
+                self.advance()
+                if decimals == '':
+                    decimals = 0
+                else:
+                    decimals = int(decimals, base) / (base ** len(decimals))
+                if exponent == '':
+                    exponent = 0
+                else:
+                    exponent = int(exponent, base)
+                integer = int(num, base)
+                integer += decimals
+                integer *= (base ** exponent)
+                if self.p[self.i] == 'x':   # its a fixed point
+                    self.advance()
+                    offset = self.make_int(base)
+                    integer *= offset
+                    integer = int(integer)
+                    return integer
+                else:   # its a float
+                    if self.p[self.i] in indentation:
+                        bits = 32
+                    else:
+                        bits = self.make_int()
+                        if bits not in {16, 32, 64}:
+                            self.error(E.invalid_literal, bits)
+                    return self.make_float(integer, bits)
+
+            elif self.p[self.i] == 'e':
+                if has_exponent:
+                    self.error(E.illegal_char, self.p[self.i])
+                    break
+                else:
+                    has_exponent = True
+            elif has_exponent:
+                exponent += self.p[self.i]
+            else:
+                num += self.p[self.i]
+            self.advance()
+        if has_point:
+            if has_exponent:
+                return int(num, base) * (base ** int(exponent, base))
+            else:
+                return int(num, base)
+        else:
+            if has_exponent:
+                return int(num, base) * (base ** int(exponent, base))
+            else:
+                return int(num, base)
+
+    def make_float(self, num, bits) -> int:
+        if num < 0:
+            output = 2 ** (bits-1)
+        else:
+            output = 0
+        mantissa, exponent = frexp(num)
+        mantissa -= 0.5
+        exponent -= 1
+        if bits == 16:
+            exponent += 15
+            mantissa *= 2 << 10
+            exponent *= 2 << 11
+            pass
+        elif bits == 32:
+            exponent += 127
+            mantissa *= 2 << 23
+            exponent *= 2 << 22
+            pass
+        elif bits == 64:
+            exponent += 1023
+            mantissa *= 2 << 51
+            exponent *= 2 << 52
+
+        output += int(mantissa)
+        output += exponent
+        return output
+
     def make_str(self, char: str) -> str:
         word = char
         while self.has_next() and self.p[self.i] != char and self.p[self.i] != '\n':
@@ -378,7 +524,7 @@ class Lexer:
             self.advance()
         return word
 
-    def make_num(self) -> int:
+    def make_int(self, base=0) -> int:
         if self.p[self.i] == ' ':
             return 0
         if self.p[self.i] in '+-':
@@ -394,7 +540,7 @@ class Lexer:
             else:
                 num += self.p[self.i]
             self.advance()
-        return int(num, 0)
+        return int(num, base)
 
     def multi_line_comment(self) -> None:
         while self.has_next(1) and (self.p[self.i] != '*' or self.p[self.i + 1] != '/'):
