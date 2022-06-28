@@ -123,7 +123,11 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''ADD R1 0b101e10fx10 R3'''
+    source = r'''define @var1 R1
+    define @var2 @var1
+    define @var1 @var2
+    lsh @var1
+    rsh @var2'''
 
     output_file_name = dest_name
     label_id = f'.reserved_{output_file_name}_'
@@ -686,7 +690,7 @@ class Parser:
 
     def make_inst_def(self):
         opcode = self.get_opcode()
-        inst_def = InstDef(opcode.value)
+        inst_def = InstDef(opcode.value.upper())
         self.advance()
         while self.has_next() and self.peak().type != T.newLine:
             if self.peak().type == T.word and self.peak().value.upper() in ot.op_type:
@@ -696,7 +700,7 @@ class Parser:
             self.advance()
 
         if opcode not in self.inst_def:
-            self.inst_def[opcode.value] = inst_def
+            self.inst_def[opcode.value.upper()] = inst_def
         else:  # already exists a definition
             pass
         return
@@ -760,13 +764,14 @@ class Parser:
     # loop[2] = end_label
     def make_instruction(self, recursive: bool = False, loop=None):
         opcode = self.get_opcode()
+        opcode.value = opcode.value.upper()
         self.advance()
         if not self.has_next():
             return
 
         temps: Dict[Token] = self.temp.copy()  # save the current state of the temps
 
-        opcode_str = opcode.value.upper()
+        opcode_str = opcode.value
         if recursive:
             inst = Instruction(opcode, self.get_inst_def(opcode))
             tmp = self.get_tmp()
@@ -845,7 +850,7 @@ class Parser:
 
     def get_inst_def(self, opcode):
         try:
-            return self.inst_def[opcode.value]
+            return self.inst_def[opcode.value.upper()]
         except KeyError:
             self.error(E.unk_instruction, opcode, opcode)
             return
@@ -888,7 +893,7 @@ class Parser:
         if self.has_next() and self.peak() != T.newLine:
             type = self.peak().type
             value = self.peak().value
-            operand = None
+            operand = self.peak()
 
             if type == T.sym_lpa:
                 self.advance()
@@ -910,19 +915,14 @@ class Parser:
                 if value in self.macros:
                     operand = self.macros[value]
 
-                elif value in default_macros:
-                    operand = self.peak()
-
-                elif inst.opcode.value.upper() == 'DEFINE' and 'DEFINE' == self.peak(
-                        -1).value.upper():  # 1st op of DEFINE
-                    operand = self.peak()
+                elif value in default_macros or self.peak(-1).value.upper() == 'DEFINE':  # 1st op of DEFINE
+                    pass
 
                 else:
                     self.error(E.undefined_macro, self.peak(), self.peak())
                 self.advance()
 
             else:
-                operand = self.peak()
                 self.advance()
             if self.has_next() and self.peak().type == T.sym_lbr:
                 temp = self.get_tmp()
