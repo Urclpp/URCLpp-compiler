@@ -1,4 +1,5 @@
-URCL++ 2.0 documentation
+URCL++ 2.0 official documentation
+------------------------------------------------------------------------------------------------------------------------
 
 List of features:
     14 new instructions
@@ -17,26 +18,33 @@ List of Future features:
     Type system
     Code optimiser for compiler output
 
+------------------------------------------------------------------------------------------------------------------------
 
 New Instructions:
     END: end marks down the end of a code block (similar to '}' character in C like languages). Code blocks start with
         special instructions such as if, switch, while and for loops. On if chains, the code block is separated by elif,
         meaning there is only 1 end keyword for the whole chain, and elif will act as '} else if () {'
 
+
     IF: Similar to most programming languages, if the condition is met, it will execute the next code block
+
 
     ELIF: Similar to python, if the new condition is met, and the previous conditions on the if chain were false, it
         will execute the next code block
 
+
     ELSE: similar to most programming languages, if none of the previous conditions were true, it will execute the next
         code block
+
 
     FOR: loops threw the next code block a fixed number of times. The first argument is the starting value, the second
         value is the end, and the third (optional) is the step that is added to the first value at the end of each
         iteration. It evaluates the expression at the start of each iteration, and if the first value is greater or
         equal than the end it will stop.
 
+
     WHILE: similar to most programming languages, while the condition is true it will execute the next code block.
+
 
     SWITCH: Strictly compares equality between the given value and other pre-defined values on CASE statements. It
         creates a hash table with the hash function: order all the inputs, then offset every one with the value of the
@@ -45,58 +53,150 @@ New Instructions:
          default will be to do nothing and just ignores the switch. The unpopulated parts of the list will be programmed
          to the default case.
 
+
     CASE: Adds new cases to the current SWITCH statement. The provided cases will be linked to the position of the CASE
         statement inside the SWITCH code block. Note that EXIT are required to stop the next CASE from being executed.
+
 
     DEFAULT: Adds a default case to the current SWITCH statement. That default case will be linked with all the empty
         entries on the switch hash table. If no default statement is provided it will be assumed to exist and be empty.
         Note that EXIT are required to stop the next CASE from being executed.
 
+
     EXIT: Known as 'break' in most programming languages. It stops executing the current loop or switch statement.
+
 
     SKIP: Known as 'continue' in most programming languages. It stops executing the current iteration on a loop, runs
         the final statement, and branches back to the start of the next iteration.
 
+
     DEFINE: Defines a macro to be used instead of another operand. That macro is prefixed with '@' character. Can
         replace single word operands, and same macro cannot be reassigned in later parts of the program.
 
-    LCAL:
+
+    LCAL: Calls a function using urcl++'s calling convention. It needs the library function's name, and inside parenthesis,
+          the arguments (if it requires arguments). At the end of the file, you can find more about urcl++'s calling convention.
+
 
     TEMP: temp is more of a header than instruction, but it can be used as both. It adds registers to the list of
         registers it can be used during compile-time to translate and simplify code
 
+
     INST: Defines how an instruction should work for the compiler. It takes the opcode and all the types of the operands
         that make up the instruction. There are currently 7 types: 'REG', 'IMM', 'WB', 'MEM', 'LOC', 'ANY', 'IO'.
-        REG: means it must be a register
-        IMM: means it must be a literal value such as an immediate value, char, label (any value known at compile time)
-        WB: means it must be a register to be written to
-        MEM: TODO
 
+        REG: means it must be a register
+
+        IMM: means it must be a literal value such as an immediate value, char, label (any value known at compile time)
+
+        WB: means it must be a register to be written to
+
+        MEM: means it must be a memory (RAM) location
+
+        LOC: means it must be a program (ROM) location
+            (Note: if the program is RUN RAM then it's a RAM location that should contain instructions)
+
+        IO: means it must be a port (port number or port name)
+
+        ANY: means it can be any of the above (except IO for safety reasons)
+            (Note: it should not be possible to use port address (name or number) to be used as literals to avoid quirks
+             and unpredictability.
+                   Despite some emulators (at date of V2.0) being able to do so, in V2.0 and below it's not supported)
+
+------------------------------------------------------------------------------------------------------------------------
 
 Operand Shorthands:
-    Sometimes repetitive information can be omitted, and that is the case for automatic operand completing. Here is an
-    example to illustrate how it works: INC R1 R1, it's rare to increment a register to other value other than itself.
-    So it would make sense to have INC R1 be valid. But what about 3 operand instructions? Take the example: ADD R1 R1 R2
-    In this case we can also omit the repeated source, making it ADD R1 R2.
-    Resume: If n-1 operands are presented on an n operand instruction, then the first operand will be repeated on the output code.
+    Operand Completion:
+        Sometimes repetitive information can be omitted, and that is the case for automatic operand completing.
+        Here is an example to illustrate how it works: INC R1 R1, it's rare to increment a register to other value
+        other than itself.
+        So it would make sense to have INC R1 be valid. But what about 3 operand instructions?
+        Take the example: ADD R1 R1 R2
+        In this case we can also omit the repeated source, making it ADD R1 R2.
 
-    In C you can use * operator to reference the value pointed by a variable. We adopted the [] operator for this matter.
-    Inside the [] there can be a value. you can also append [] one after the other to have a pointer of a pointer.
-    There are 2 distinct cases: when [] is used to write to, and when [] is used when reading its value.
-    When writing, [] cannot be stacked multiple times to extend its logic multiple times.
-    Reading:
-        ADD R1 R2 R3[R4] will be compiled to
-        ADD temp temp R4
-        LOD temp temp
-        ADD R1 R2 temp
+    General Rule: If n-1 operands are presented on an n operand instruction, then the first operand will be repeated on
+                  the output code.
 
-    Writing:
-        ADD R1[] R2 R3 will be compiled to
-        ADD temp R2 R3
-        STR R1 temp
+    Pointers:
+        In C you can use * operator to reference the value pointed by a variable.
+        We adopted the [] operator for this matter.
+        Inside the [] there can be a value. you can also append [] one after the other to have a pointer of a pointer.
+        There are 2 distinct cases: when [] is used to write to, and when [] is used when reading its value.
+        When writing, [] cannot be stacked multiple times to extend its logic multiple times.
+
+        Reading:
+            ADD R1 R2 R3[R4] will be compiled to
+            ADD temp R3 R4
+            LOD temp temp
+            ADD R1 R2 temp
+
+        Writing:
+            ADD R1[] R2 R3 will be compiled to
+            ADD temp R2 R3
+            STR R1 temp
 
     Note: Currently these 2 features cannot be used at the same time. using [] to write and operand shorthand collides.
 
+------------------------------------------------------------------------------------------------------------------------
 
 Recursive Instructions:
+    In higher level languages, one can have multiple statements and expressions in the same line.
+    Despite being an assembly like language, we brought this feature to URCL++. Here is how it works:
+    You can use the output of another expression directly as an input to another instruction, without needing to save it
+    explicitly to a register/variable.
+
+    (code in C):
+        int temp = a - 69
+        int output = b + a
+
+        can be simply:
+
+        int output = b + (a - 3)    // parenthesis are redundant and can be removed
+
+    next is the same process but in urcl++
+        SUB R5 R1 69    // variable a is R1 and temp is R5
+        ADD R3 R5 R2    // variable b is R2 and output is R3
+
+        can be simply:
+
+        ADD R3 R2 (SUB R1 69)
+
+    We just used the result of the instruction SUB R1 69 as operand on the ADD instruction.
+    Notice that the destination operand is not present on the instruction inside parenthesis, as there's no need for it.
+    The compiler will just find a temporary register to be used in that step process of saving the value.
+    The compiler will NOT use the stack to store this temporary value as memory operations tend to be slow.
+    Next versions will allow the stack to be used if the user didn't define enough temporary registers.
+    In current V2.0 it provides an error saying not enough temporary registers were defined.
+
+------------------------------------------------------------------------------------------------------------------------
+
+Calling Convention:
+    The function to be called must start with a label (equal to the name of the function), and end with a RET, or it can
+    be alternatively replaced with its equivalent translation: POP PC or DEC SP SP; LOD PC SP
+    When calling the function the caller must ensure the following (in this order):
+        1: Pushing all the registers that are going to be used by the function, that are not output registers
+        2: Pushing the function arguments in reverse order (1st argument is the last to be pushed). Skip if no arguments
+        3: CAL to the label (cal = PSH PC; JMP .lib_func) or expanded as (STR SP PC; INC SP SP; JMP .lib_func)
+        4: POP all args from the stack (or just subtract the number of arguments from the stack pointer SP)
+        5: POP all used registers that are not output registers in reverse order
+    After this, the outputs should be in the first registers (from R1 counting up)
+
+    WARNINGS: No register outside the designated area (between R1 to Rn, n being number of used registers) should be
+              written to, in order to avoid bugs.
+              Put the headers on your library functions in order for the compiler to call the function correctly
+
+------------------------------------------------------------------------------------------------------------------------
+
+Library function Headers:
+    OUTS: Specifies how many outputs the function will have
+
+    OPS: Specifies how many arguments the function expects
+
+    REG: Specifies how many registers total will be used (modified/written)
+
+------------------------------------------------------------------------------------------------------------------------
+
+Error messages:
     TODO
+
+
