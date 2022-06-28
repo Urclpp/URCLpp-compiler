@@ -10,6 +10,8 @@ List of features:
     Being able to create and import library functions to be called
     Defining macros to be used on operands
     Defining temporary registers to be ease the translation process of the compiler
+    Allowing float/fixed point values as imm values in operands
+    Adding support for multiple statements in a single line
 
 List of Future features:
     Being able to provide translations for custom defined instructions
@@ -105,6 +107,11 @@ New Instructions:
 
 ------------------------------------------------------------------------------------------------------------------------
 
+Floats and fixed point in Immediate values:
+    TODO
+
+------------------------------------------------------------------------------------------------------------------------
+
 Operand Shorthands:
     Operand Completion:
         Sometimes repetitive information can be omitted, and that is the case for automatic operand completing.
@@ -197,6 +204,116 @@ Library function Headers:
 ------------------------------------------------------------------------------------------------------------------------
 
 Error messages:
-    TODO
+    All messages come with the line and the character that the error was found. If the error is generated at line -1 and
+     character -1 then it's an error of the compiler (and possibly the user's code too). Please report the Bug.
+     These index numbers often are at the end of the token instead of the beginning.
 
+    List of all possible error messages and quick fixes:
 
+        Illegal Char <>:
+            means there is a char not supported by the compiler or a char that doesn't have a token associated with it.
+            try removing that character
+
+        Invalid Char <>:
+            means that the character in between '' is either multiple characters or an unsupported char.
+            try removing that character
+
+        Invalid literal for imm value:
+            means that the float standard presented is not one of the following: 16, 32, 64
+            all the floats represented are in the IEEE-754 format. 16 is half precision, 32 is single precision, 64 is double precision.
+
+        Unknown port name -> means that the port name/number is not supported by the official urcl documentation
+
+        Unknown library function:
+            means that a library function was referenced by its name and location on the files, but it was not found by the compiler. Try checking for typo or if it's on the right path
+
+        Unknown library name:
+            means that a library function was referenced by its name and location on the files, but it was not found by the compiler.
+            Try checking for typo or if it's on the right path
+            It can also be a function instead of a library
+
+        Unknown instruction name:
+            means that the compiler didn't find the definition of that instruction. This may be because the inst library was renamed, moved or deleted.
+            In case of user made custom instructions it means that it wasn't defined at the time it was referenced.
+
+        Missing closing quote:
+            means that either ' or " were put but the ending pair was not found within the same line.
+            Try checking if there is an accidental newLine (enter) or if the ' or " char was a typo.
+
+        Keyword expected:
+            means that the compiler was expecting a word while parsing but found another type of token.
+            try making sure that the syntax and grammar of that line is correct.
+
+        Symbol <> expected:
+            means that the compiler was expecting a symbol while parsing but found another type of token.
+            try making sure that the syntax and grammar of that line is correct.
+
+        Token expected, found <> instead:
+            means that the compiler was expecting a token while lexing but found nothing.
+            try making sure that the syntax of that line is correct.
+
+        Operand expected, found <> instead:
+            means that the compiler was expecting an operand while parsing but found a type of token that can't be an operand.
+            try making sure that the syntax and grammar of that line is correct
+
+        Instruction <> takes <> operands but got <>:
+            means that the instruction was defined as having a different number of operands than those presented.
+            This error sometimes comes with other errors as the parser fails to parse some operand cause of another error and so it also fails in another section of the code.
+            try fixing the other errors first if that happens.
+            It can also happen due to a custom instruction being defined incorrectly.
+
+        Invalid operand type '<>' for Instruction <>:
+            means that the type of the operand given doesn't match the valid types on its definition.
+            This error sometimes comes with other errors as the parser fails to parse some operand cause of another error and so it also fails in another section of the code.
+            try fixing the other errors first if that happens.
+            If the instructions is a custom instruction, then check its definition.
+            Check the order of operands, as some instructions are not commutative.
+
+        Wrong operand type '<>' used, '<>' expected:
+            means that the type of the operand given doesn't match the valid types on its definition.
+            This error sometimes comes with other errors as the parser fails to parse some operand cause of another error and so it also fails in another section of the code.
+            try fixing the other errors first if that happens.
+            If the instructions is a custom instruction, then check its definition.
+            Check the order of operands, as some instructions are not commutative.
+
+        Duplicate Case '<>' used:
+            means that on SWITCH instruction, there are 2 CASE, that share the same value.
+            try picking between them, and remove the duplicated.
+
+        Duplicate Default used:
+            means that default instruction was used more than 1 time on a single switch.
+            try picking between them, and remove the duplicated default.
+
+        Duplicate macro "<>" used:
+            means that there were presented 2 definitions to the same macro.
+            try picking between them, and remove one of them.
+
+        Duplicate label "<>" used:
+            means that the compiler found 2 labels with the same name.
+            try picking between them, and remove one of them.
+
+        Undefined macro '<>' used:
+            means that the compiler found a macro that wasn't defined before.
+            try defining it before usage, or remove it.
+
+        EXIT/SKIP must be used inside a loop:
+            means that either EXIT/SKIP were used without them being inside a loop's scope.
+            try removing them or defining a loop. (there may be an extra END that is closing the loop before that instruction).
+
+        ELSE/ELIF must come after "IF" instruction:
+            means that the compiler found an ELSE or an ELIF before an IF instruction.
+            try removing them. (there may be an extra END that is closing the if chain before that instruction).
+
+        Missing "END":
+            means that the compiler was expecting an END keyword but the file ended before.
+            try checking the blocks of code, or adding END at the end of the file.
+
+        Not enough temporary registers defined:
+            means that the compiler faced a situation where it needed more temporary registers than those defined previously.
+            Define more temporary registers or unpack the expression using explicit registers instead.
+
+        Error on file '<>':
+            means that the compiler found one of the previous errors on a file that was imported earlier.
+            try following the instructions of the error provided at the specified location.
+
+------------------------------------------------------------------------------------------------------------------------

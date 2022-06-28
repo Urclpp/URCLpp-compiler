@@ -33,6 +33,7 @@ class T(Enum):
     sym_dif = "sym_dif"
     sym_and = "sym_and"
     sym_or = "sym_or"
+    sym_lnbr = 'sym_lnbr'
 
     def __repr__(self) -> str:
         return self.value
@@ -57,6 +58,7 @@ symbols = {
     '==': T.sym_equ,
     '&&': T.sym_and,
     '||': T.sym_or,
+    ';': T.sym_lnbr,
 }
 op_precedence = {
     "sym_lt": 0,
@@ -87,7 +89,7 @@ default_imports = {"inst.core", "inst.io", "inst.basic", "inst.complex"}
 class E(Enum):
     illegal_char = "Illegal Char '{}'"
     invalid_char = "Invalid Character {}"
-    invalid_literal = "Invalid literal for imm value {}"
+    invalid_literal = "Invalid literal for imm value {}, must be either 16 32 or 64"
     unk_port = "Unknown port name '{}'"
     unk_library = "Unknown library name '{}'"
     unk_function = "Unknown library function '{}'"
@@ -124,10 +126,8 @@ def main():
     dest_name = argv[2] if len(argv) >= 3 else None
 
     source = r'''define @var1 R1
-    define @var2 @var1
-    define @var1 @var2
-    lsh @var1
-    rsh @var2'''
+    define @var1 R2
+    lsh @var1'''
 
     output_file_name = dest_name
     label_id = f'.reserved_{output_file_name}_'
@@ -280,6 +280,9 @@ class Lexer:
         elif self.p[self.i] == '|' and self.has_next(1) and self.p[self.i + 1] == '|':
             self.advance()
             self.token(T.sym_or)
+
+        elif self.p[self.i] == ';':
+            self.token(T.newLine)
 
         else:
             try:
@@ -912,11 +915,11 @@ class Parser:
                 return operand
 
             elif type == T.macro:
-                if value in self.macros:
-                    operand = self.macros[value]
-
-                elif value in default_macros or self.peak(-1).value.upper() == 'DEFINE':  # 1st op of DEFINE
+                if value in default_macros or self.peak(-1).value.upper() == 'DEFINE':  # 1st op of DEFINE
                     pass
+
+                elif value in self.macros:
+                    operand = self.macros[value]
 
                 else:
                     self.error(E.undefined_macro, self.peak(), self.peak())
@@ -1374,10 +1377,11 @@ class Parser:
             self.error(E.invalid_op_type, macro, macro.type, 'DEFINE')
 
         value = self.next_operand(inst)
-        if macro.value in self.macros or macro.value in default_macros:
-            self.error(E.duplicate_macro, macro, macro)
-        else:
-            self.macros[macro.value] = value
+        # if macro.value in self.macros or macro.value in default_macros:
+        #     self.error(E.duplicate_macro, macro, macro.value)
+        # else:
+        #     self.macros[macro.value] = value
+        self.macros[macro.value] = value
         return
 
     def make_dw(self):
