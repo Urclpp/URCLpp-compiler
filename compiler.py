@@ -126,9 +126,76 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''define @var1 R1
-    define @var1 R2
-    lsh @var1'''
+    source = r'''temp R6
+//variable definition
+define @x r1
+define @y r2
+define @count r3
+define @rad_2 r4
+define @dy r5
+
+// circle
+define @xc 32
+define @yc 32
+define @radius 16
+
+//variable setup
+imm @x 0
+
+imm @y @radius
+imm @count @radius
+imm @dy 1
+lsh @rad_2 @radius
+
+//loop
+while @count > 0
+    CAL	.put_pixels
+    inc @x
+    sub @count @dy
+    add @dy 2
+
+    if @count >= 0
+        sub @rad_2 2
+        add @count @rad_2
+        dec @y
+    end
+end
+HLT
+
+.put_pixels
+OUT %X (add @xc @x)
+OUT %Y (add @yc @y)
+OUT %COLOR 1
+
+OUT %X (add @xc @y)
+OUT %Y (add @yc @x)
+OUT %COLOR 1
+
+OUT %X (sub @xc @x)
+OUT %Y (add @yc @y)
+OUT %COLOR 1
+
+OUT %X (sub @xc @y)
+OUT %Y (add @yc @x)
+OUT %COLOR 1
+
+OUT %X (add @xc @x)
+OUT %Y (sub @yc @y)
+OUT %COLOR 1
+
+OUT %X (add @xc @y)
+OUT %Y (sub @yc @x)
+OUT %COLOR 1
+
+OUT %X (sub @xc @x)
+OUT %Y (sub @yc @y)
+OUT %COLOR 1
+
+OUT %X (sub @xc @y)
+OUT %Y (sub @yc @x)
+OUT %COLOR 1
+RET
+'''
 
     output_file_name = dest_name
     label_id = f'.reserved_{output_file_name}_'
@@ -153,7 +220,9 @@ def main():
     # print("\n", file=dest)
 
     if len(lex_errors) > 0:
+        stdout.write('\u001b[31m')
         print(lex_errors, file=stderr)
+        stdout.write('\u001b[0m')
         exit(1)
     # parse
     parser = Parser(tokens, label_id)
@@ -175,7 +244,9 @@ def main():
 
     if len(parser.errors) > 0:
         for err in parser.errors:
+            stdout.write('\u001b[31m')
             print(err, file=stderr)
+            stdout.write('\u001b[0m')
         exit(1)
 
     return
@@ -214,10 +285,10 @@ class Lexer:
         self.label_id = label_id
 
     def error(self, error: E, extra: str = "") -> None:
-        self.errors.append(Error(error, self.j, self.line_nr, extra))
+        self.errors.append(Error(error, self.j, self.line_nr+1, extra))
 
     def token(self, type: T, value: str = "") -> None:
-        self.output.append(Token(type, self.j, self.line_nr, value))
+        self.output.append(Token(type, self.j, self.line_nr+1, value))
 
     def make_tokens(self):
         while self.has_next():
@@ -378,7 +449,7 @@ class Lexer:
             elif self.p[self.i].lower() == 'b':
                 base = 2
             else:
-                num += self.p[self.i]
+                self.advance(-1)
             self.advance()
         integer = 0
         decimals = ''
@@ -570,7 +641,7 @@ class Lexer:
     def new_line(self):
         self.token(T.newLine)
         self.line_nr += 1
-        self.j = 0
+        self.j = 1
 
     def has_next(self, i: int = 0) -> bool:
         return len(self.p) > self.i + i >= 0
@@ -667,7 +738,7 @@ class Parser:
         self.inst_def: Dict[str, InstDef] = {}
         self.errors: List[Error] = []
 
-        self.temp: Dict[Token] = {token(T.reg, 'tmp'): True, token(T.reg, 'tmp2'): True}
+        self.temp: Dict[Token] = {}
         self.id_count = 0
         self.macros: Dict[Token] = {}
         self.labels = set()
@@ -837,6 +908,8 @@ class Parser:
             self.make_operands(inst)
             for tmp in inst.operands:
                 self.add_tmp(tmp)
+            self.skip_line()
+            return
 
         # add more later
         # elif opcode_str == '':
