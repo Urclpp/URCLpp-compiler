@@ -1,7 +1,7 @@
 import os
 from sys import argv, stdout, stderr
 from enum import Enum
-from typing import List, OrderedDict, Tuple
+from typing import List, Tuple, Dict
 from math import frexp
 
 from dataclasses import dataclass
@@ -81,7 +81,8 @@ default_macros = {'@BITS', '@MINREG', '@MINRAM', '@HEAP', '@MINSTACK', '@MSB', '
 
 file_extension = '.urcl'
 file_extensionpp = '.urclpp'
-lib_root = 'urclpp-libraries'
+compiler_root = os.path.dirname(__file__)
+lib_root = os.path.join(compiler_root, 'urclpp-libraries')
 default_imports = {"inst.core", "inst.io", "inst.basic", "inst.complex"}
 
 
@@ -662,7 +663,6 @@ def token(type: T, value=''):
 class Parser:
     def __init__(self, tokens: List[Token], label_id: str, recursive: bool = False):
         self.tokens: List[Token] = tokens
-        self.ids: Dict[str, Id] = {}
         self.instructions: List[Instruction] = []
         self.inst_def: Dict[str, InstDef] = {}
         self.errors: List[Error] = []
