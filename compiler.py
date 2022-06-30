@@ -1228,8 +1228,8 @@ class Parser:
                 self.instructions.insert(dw_loc, Instruction(token(T.word, 'SUB'), None, tmp, reg, smallest_case))
             if has_default:
                 default_label = end_label
-            self.instructions.insert(dw_loc, Instruction(token(T.word, 'BRG'), None, default_label, reg, biggest_case))
-            self.instructions.insert(dw_loc, Instruction(token(T.word, 'BRL'), None, default_label, reg, smallest_case))
+            self.instructions.insert(dw_loc, Instruction(token(T.word, 'SBRG'), None, default_label, reg, biggest_case))
+            self.instructions.insert(dw_loc, Instruction(token(T.word, 'SBRL'), None, default_label, reg, smallest_case))
 
         else:
             self.error(E.word_miss, self.peak(), self.peak())
@@ -1288,7 +1288,7 @@ class Parser:
 
         self.labels.add(start_label.value)
         self.add_inst(Instruction(start_label, None))
-        self.add_inst(Instruction(token(T.word, 'BGE'), end_label, reg, end_num))
+        self.add_inst(Instruction(token(T.word, 'SBGE'), end_label, reg, end_num))
 
         if self.has_next() and self.tokens[self.i] != T.newLine:  # checking if there is the option parameter
             value_to_add = self.next_operand(inst)
@@ -1500,12 +1500,12 @@ class Parser:
         elif len(operands) == 3:
             cnd = operands[1].type
             comparison = {
-                T.sym_lt: Instruction(token(T.word, 'BGE'), None, label, operands[0], operands[2]),
-                T.sym_gt: Instruction(token(T.word, 'BLE'), None, label, operands[0], operands[2]),
-                T.sym_geq: Instruction(token(T.word, 'BRL'), None, label, operands[0], operands[2]),
-                T.sym_leq: Instruction(token(T.word, 'BRG'), None, label, operands[0], operands[2]),
-                T.sym_dif: Instruction(token(T.word, 'BRE'), None, label, operands[0], operands[2]),
-                T.sym_equ: Instruction(token(T.word, 'BNE'), None, label, operands[0], operands[2]),
+                T.sym_lt: Instruction(token(T.word, 'SBGE'), None, label, operands[0], operands[2]),
+                T.sym_gt: Instruction(token(T.word, 'SBLE'), None, label, operands[0], operands[2]),
+                T.sym_geq: Instruction(token(T.word, 'SBRL'), None, label, operands[0], operands[2]),
+                T.sym_leq: Instruction(token(T.word, 'SBRG'), None, label, operands[0], operands[2]),
+                T.sym_dif: Instruction(token(T.word, 'SBRE'), None, label, operands[0], operands[2]),
+                T.sym_equ: Instruction(token(T.word, 'SBNE'), None, label, operands[0], operands[2]),
             }
             if cnd not in comparison:
                 return  # wrong condition or smt
