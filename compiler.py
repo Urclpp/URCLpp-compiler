@@ -112,7 +112,6 @@ class E(Enum):
     missing_if = '{} must come after "IF" instruction'
     end_expected = 'Missing "END"'
     no_tmp = "Not enough temporary registers defined"
-    lib_error = "Error on file '{}': {}"
     str = "{}"
 
     def __repr__(self):
@@ -126,76 +125,11 @@ def main():
     source_name = argv[1] if len(argv) >= 2 else None
     dest_name = argv[2] if len(argv) >= 3 else None
 
-    source = r'''temp R6
-//variable definition
-define @x r1
-define @y r2
-define @count r3
-define @rad_2 r4
-define @dy r5
+    if source_name == '--help':
+        print(usage)
+        return
 
-// circle
-define @xc 32
-define @yc 32
-define @radius 16
-
-//variable setup
-imm @x 0
-
-imm @y @radius
-imm @count @radius
-imm @dy 1
-lsh @rad_2 @radius
-
-//loop
-while @count > 0
-    CAL	.put_pixels
-    inc @x
-    sub @count @dy
-    add @dy 2
-
-    if @count >= 0
-        sub @rad_2 2
-        add @count @rad_2
-        dec @y
-    end
-end
-HLT
-
-.put_pixels
-OUT %X (add @xc @x)
-OUT %Y (add @yc @y)
-OUT %COLOR 1
-
-OUT %X (add @xc @y)
-OUT %Y (add @yc @x)
-OUT %COLOR 1
-
-OUT %X (sub @xc @x)
-OUT %Y (add @yc @y)
-OUT %COLOR 1
-
-OUT %X (sub @xc @y)
-OUT %Y (add @yc @x)
-OUT %COLOR 1
-
-OUT %X (add @xc @x)
-OUT %Y (sub @yc @y)
-OUT %COLOR 1
-
-OUT %X (add @xc @y)
-OUT %Y (sub @yc @x)
-OUT %COLOR 1
-
-OUT %X (sub @xc @x)
-OUT %Y (sub @yc @y)
-OUT %COLOR 1
-
-OUT %X (sub @xc @y)
-OUT %Y (sub @yc @x)
-OUT %COLOR 1
-RET
-'''
+    source = r''''''
 
     output_file_name = dest_name
     label_id = f'.reserved_{output_file_name}_'
@@ -213,19 +147,17 @@ RET
     if dest_name is not None:
         dest = open(dest_name, mode="w")
 
-    tokens, lex_errors = Lexer(source, label_id).make_tokens()
+    tokens, lex_errors = Lexer(source, label_id, dest_name).make_tokens()
 
     # print("tokens:", file=dest)
     # print(tokens, file=dest)
     # print("\n", file=dest)
 
     if len(lex_errors) > 0:
-        stdout.write('\u001b[31m')
         print(lex_errors, file=stderr)
-        stdout.write('\u001b[0m')
         exit(1)
     # parse
-    parser = Parser(tokens, label_id)
+    parser = Parser(tokens, label_id, dest_name)
 
     for lib in default_imports:  # generating all the default inst_def needed to execute the code
         parser.read_lib(lib)
@@ -244,9 +176,7 @@ RET
 
     if len(parser.errors) > 0:
         for err in parser.errors:
-            stdout.write('\u001b[31m')
             print(err, file=stderr)
-            stdout.write('\u001b[0m')
         exit(1)
 
     return
@@ -264,28 +194,30 @@ class Token:
 
 
 class Error:
-    def __init__(self, error: E, index: int, line: int, *args) -> None:
+    def __init__(self, error: E, index: int, line: int, file_name: str, *args) -> None:
         self.error = error
         self.line = line
         self.index = index
         self.args = args
+        self.file_name = file_name
 
     def __repr__(self) -> str:
-        return f'{self.error.value.format(*self.args)}, at char {self.index} at line {self.line}'
+        return f'{self.file_name}:{self.index}:{self.line}: {self.error.value.format(*self.args)}'
 
 
 class Lexer:
-    def __init__(self, program: str, label_id: str) -> None:
-        self.p = program
+    def __init__(self, program: str, label_id: str, file_name: str) -> None:
+        self.p = program + '\n'     # newline to avoid problems
         self.line_nr = 0
         self.j = 0
         self.i = 0
         self.output: List[Token] = []
         self.errors: List[Error] = []
         self.label_id = label_id
+        self.file_name = file_name
 
     def error(self, error: E, extra: str = "") -> None:
-        self.errors.append(Error(error, self.j, self.line_nr+1, extra))
+        self.errors.append(Error(error, self.j, self.line_nr+1, self.file_name, extra))
 
     def token(self, type: T, value: str = "") -> None:
         self.output.append(Token(type, self.j, self.line_nr+1, value))
@@ -732,7 +664,8 @@ def token(type: T, value=''):
 
 
 class Parser:
-    def __init__(self, tokens: List[Token], label_id: str, recursive: bool = False):
+    def __init__(self, tokens: List[Token], label_id: str, file_name: str, recursive: bool = False):
+        self.file_name = file_name
         self.tokens: List[Token] = tokens
         self.instructions: List[Instruction] = []
         self.inst_def: Dict[str, InstDef] = {}
@@ -744,7 +677,6 @@ class Parser:
         self.labels = set()
         self.label_id = label_id
 
-        self.lib_errors = []
         self.lib_headers: Dict[str] = {}
         self.imported_libs = set()
         self.recursive = recursive
@@ -755,7 +687,7 @@ class Parser:
         self.i = 0
 
     def error(self, error: E, tok: Token, *args):
-        self.errors.append(Error(error, tok.position, tok.line, *args))
+        self.errors.append(Error(error, tok.position, tok.line, self.file_name, *args))
 
     def add_inst(self, inst: Instruction) -> None:
         self.instructions.append(inst)
@@ -829,7 +761,6 @@ class Parser:
 
         if not self.recursive:
             self.instructions = self.instructions + self.lib_code
-        self.errors += self.lib_errors
         return self
 
     # loop saves the context of the nearest outer loop
@@ -928,7 +859,7 @@ class Parser:
         try:
             return self.inst_def[opcode.value.upper()]
         except KeyError:
-            self.error(E.unk_instruction, opcode, opcode)
+            self.error(E.unk_instruction, opcode, opcode.value)
             return
 
     def check_instruction(self, inst: Instruction) -> None:
@@ -1364,9 +1295,9 @@ class Parser:
     def process_lib(self, lib_code, lib_name):
         lib_name_replaced = lib_name.replace(".", "_")
         label_id = f'.reserved_{lib_name_replaced}_'
-        lexer = Lexer(lib_code, label_id)
+        lexer = Lexer(lib_code, label_id, lib_name.replace('.', '/'))
         lexer.make_tokens()
-        parser = Parser(lexer.output, label_id, recursive=True)
+        parser = Parser(lexer.output, label_id, lib_name.replace('.', '/'), recursive=True)
         parser.inst_def = self.inst_def
         headers = parser.get_lib_headers()
         if self.compare_headers(headers):
@@ -1378,7 +1309,7 @@ class Parser:
                     dependencies += self.read_lib(lib)
 
             for error in parser.errors:
-                self.lib_errors.append(Error(E.lib_error, error.index, error.line, lib_name, error))
+                self.errors.append(error)
             label = Instruction(token(T.label, label_id[:-1]), None)
             return [label] + parser.instructions + dependencies, parser.inst_def
         return
@@ -1540,7 +1471,7 @@ class Parser:
         if self.has_next():
             while len(stack) > 0:
                 if stack[-1].type == T.sym_lpa:
-                    self.errors.append(Error(E.sym_miss, self.peak(-1).position, self.peak(-1).line, ')'))
+                    self.errors.append(Error(E.sym_miss, self.peak(-1).position, self.peak(-1).line, self.file_name, ')'))
                 else:
                     queue.append(stack[-1])
         else:
