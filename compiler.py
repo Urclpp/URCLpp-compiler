@@ -20,6 +20,7 @@ class T(Enum):
     macro = 'opr_mac'
     char = 'opr_cha'
     string = 'opr_str'
+    array = 'opr_arr'
     sym_lpa = 'sym_lpa'
     sym_rpa = 'sym_rpa'
     sym_lbr = 'sym_lbr'
@@ -166,7 +167,7 @@ def main():
 
     # print("Instructions:", file=dest)
     for inst in parser.instructions:
-        print(inst.to_string(), file=dest)
+        print(str(inst), file=dest)
     # print(parser.instructions, file=dest)
     print("\n", file=dest)
 
@@ -240,62 +241,22 @@ class Lexer:
                     else:  # you got your hopes high, but it was just an illegal char :/
                         self.error(E.illegal_char, '/')
 
-                elif self.p[self.i] in symbols or self.p[self.i] in {'=', '!'}:  # gotta check for first char of all
-                    self.make_symbol()
-                    self.advance()
                 else:
                     self.make_operand()
 
         return self.output, self.errors
 
-    def make_symbol(self):
-        if self.p[self.i] == '<':
-            if self.has_next(1) and self.p[self.i + 1] == '=':
-                self.token(symbols['<='])
-                self.advance()
-            else:
-                self.token(symbols['<'])
-
-        elif self.p[self.i] == '>':
-            if self.has_next(1) and self.p[self.i + 1] == '=':
-                self.token(symbols['>='])
-                self.advance()
-            else:
-                self.token(symbols['>'])
-
-        elif self.p[self.i] == '=':
-            if self.has_next(1) and self.p[self.i] == '=':
-                self.token(T.sym_equ)
-                self.advance()
-            else:
-                self.error(E.illegal_char, self.p[self.i])
-
-        elif self.p[self.i] == '!':
-            if self.has_next(1) and self.p[self.i] == '=':
-                self.token(T.sym_dif)
-                self.advance()
-            else:
-                self.error(E.illegal_char, self.p[self.i])
-
-        elif self.p[self.i] == '&' and self.has_next(1) and self.p[self.i + 1] == '&':
-            self.advance()
-            self.token(T.sym_and)
-
-        elif self.p[self.i] == '|' and self.has_next(1) and self.p[self.i + 1] == '|':
-            self.advance()
-            self.token(T.sym_or)
-
-        elif self.p[self.i] == ';':
-            self.token(T.newLine)
-
-        else:
-            try:
-                self.token(symbols[self.p[self.i]])
-            except KeyError:
-                self.error(E.illegal_char, self.p[self.i])
-
     def make_operand(self) -> None:
-        if self.p[self.i] in digits + '+-':  # immediate value
+        if self.p[self.i] == '[':
+            values = self.make_array()
+            self.token(T.array, values)
+            self.advance()
+
+        elif self.p[self.i] in symbols or self.p[self.i] in {'=', '!'}:  # gotta check for first char of all
+            self.make_symbol()
+            self.advance()
+
+        elif self.p[self.i] in digits + '+-':  # immediate value
             self.token(T.imm, self.make_number())
 
         else:  # format: op_type:<data>
@@ -352,6 +313,10 @@ class Lexer:
                 else:
                     self.token(T.word, string)
 
+                if self.has_next() and self.p[self.i] == '[':
+                    self.token(T.sym_lbr)
+                    self.advance()
+
             # elif prefix == '':
             #    self.token()
 
@@ -361,6 +326,52 @@ class Lexer:
         if self.has_next() and self.p[self.i] == '\n':
             self.new_line()
             self.advance()
+
+    def make_symbol(self):
+        if self.p[self.i] == '<':
+            if self.has_next(1) and self.p[self.i + 1] == '=':
+                self.token(symbols['<='])
+                self.advance()
+            else:
+                self.token(symbols['<'])
+
+        elif self.p[self.i] == '>':
+            if self.has_next(1) and self.p[self.i + 1] == '=':
+                self.token(symbols['>='])
+                self.advance()
+            else:
+                self.token(symbols['>'])
+
+        elif self.p[self.i] == '=':
+            if self.has_next(1) and self.p[self.i] == '=':
+                self.token(T.sym_equ)
+                self.advance()
+            else:
+                self.error(E.illegal_char, self.p[self.i])
+
+        elif self.p[self.i] == '!':
+            if self.has_next(1) and self.p[self.i] == '=':
+                self.token(T.sym_dif)
+                self.advance()
+            else:
+                self.error(E.illegal_char, self.p[self.i])
+
+        elif self.p[self.i] == '&' and self.has_next(1) and self.p[self.i + 1] == '&':
+            self.advance()
+            self.token(T.sym_and)
+
+        elif self.p[self.i] == '|' and self.has_next(1) and self.p[self.i + 1] == '|':
+            self.advance()
+            self.token(T.sym_or)
+
+        elif self.p[self.i] == ';':
+            self.token(T.newLine)
+
+        else:
+            try:
+                self.token(symbols[self.p[self.i]])
+            except KeyError:
+                self.error(E.illegal_char, self.p[self.i])
 
     def make_number(self):   # can create errors if imm is the last thing on file
         if self.p[self.i] in '+-':  # detecting sign
@@ -535,6 +546,28 @@ class Lexer:
             self.advance()
         return word
 
+    def make_array(self):
+        self.advance()
+        values = []
+
+        while self.has_next() and self.p[self.i] != ']':
+            while self.has_next() and self.p[self.i] in indentation:
+                self.advance()
+            if self.has_next():
+                if self.p[self.i] == ']':
+                    break
+                self.make_operand()
+                values.append(self.output.pop())
+            else:
+                self.error(E.sym_miss, ']')
+                break
+
+        if len(values) == 0:
+            self.error(E.operand_expected, 'nothing')
+            return None
+        else:
+            return values
+
     def make_int(self, base=0) -> int:
         if self.p[self.i] == ' ':
             return 0
@@ -643,11 +676,19 @@ class Instruction:
         self.post_inst = inst
         return
 
-    def to_string(self):
+    def __str__(self):
         string = self.opcode.value
         for op in self.operands:
             if op.type == T.imm:
                 string += ' ' + str(op.value)
+
+            elif op.type == T.array:
+                string += " ["
+                for val in op.value:
+                    string += f' {val.value}'
+
+                string += ' ]'
+
             else:
                 string += ' ' + op.value
         return string
@@ -771,7 +812,7 @@ class Parser:
         opcode = self.get_opcode()
         opcode.value = opcode.value.upper()
         self.advance()
-        if not self.has_next():
+        if not self.has_next():     # useless but might save from some exceptions
             return
 
         temps: Dict[Token] = self.temp.copy()  # save the current state of the temps
@@ -928,6 +969,33 @@ class Parser:
                 else:
                     self.error(E.undefined_macro, self.peak(), self.peak())
                 self.advance()
+
+            elif type == T.string:
+                label = self.label_id + 'string' + str(self.id_count)
+                self.id_count += 1
+                self.labels.add(label)
+                label_tok = Token(T.label, operand.position, operand.line, label)
+                self.add_inst(Instruction(label_tok, None))
+                self.add_inst(Instruction(token(T.word, 'DW'), None, operand))
+
+                self.advance()
+                operand = label_tok
+
+            elif type == T.array:
+                label = self.label_id + 'array' + str(self.id_count)
+                self.id_count += 1
+                self.labels.add(label)
+                label_tok = Token(T.label, operand.position, operand.line, label)
+                self.add_inst(Instruction(label_tok, None))
+                self.add_inst(Instruction(token(T.word, 'DW'), None, operand))
+
+                for i, val in enumerate(value):
+                    if val.type == T.reg:
+                        value[i] = token(T.imm, 0)
+                        self.add_inst(Instruction(token(T.word, 'LSTR'), None, label_tok, token(T.imm, i+1), val))
+
+                self.advance()
+                operand = label_tok
 
             else:
                 self.advance()
