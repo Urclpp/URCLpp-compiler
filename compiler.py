@@ -109,6 +109,7 @@ class E(Enum):
     duplicate_macro = 'Duplicate macro "{}" used'
     duplicate_label = 'Duplicate label "{}" used'
     undefined_macro = "Undefined macro '{}' used"
+    undefined_label = "Undefined label '{}' used"
     outside_loop = '{} must be used inside a loop'
     missing_if = '{} must come after "IF" instruction'
     end_expected = 'Missing "END"'
@@ -784,13 +785,25 @@ class Parser:
                 self.advance()
             if not self.has_next():
                 break
+            tok = self.peak()
+            if tok.type == T.label and tok.value in self.labels:
+                self.error(E.duplicate_label, tok, tok.value)
+                self.tokens.remove(tok)
+            else:
+                self.labels.add(tok.value)
+
+            self.skip_line()
+
+        self.i = 0
+        while self.has_next():
+            while self.has_next() and self.peak().type == T.newLine:
+                self.advance()
+            if not self.has_next():
+                break
 
             tok = self.peak()
             if tok.type == T.label:
-                if tok.value in self.labels:
-                    self.error(E.duplicate_label, tok, tok.value)
-                else:
-                    self.add_inst(Instruction(tok, None))
+                self.add_inst(Instruction(tok, None))
                 self.advance()
 
             elif tok.type == T.word:
@@ -970,32 +983,16 @@ class Parser:
                     self.error(E.undefined_macro, self.peak(), self.peak())
                 self.advance()
 
-            elif type == T.string:
-                label = self.label_id + 'string' + str(self.id_count)
-                self.id_count += 1
-                self.labels.add(label)
-                label_tok = Token(T.label, operand.position, operand.line, label)
-                self.add_inst(Instruction(label_tok, None))
-                self.add_inst(Instruction(token(T.word, 'DW'), None, operand))
-
+            elif type == T.label:
+                if value not in self.labels:
+                    self.error(E.undefined_label, operand, value)
                 self.advance()
-                operand = label_tok
+
+            elif type == T.string:
+                operand = self.make_string(operand, value)
 
             elif type == T.array:
-                label = self.label_id + 'array' + str(self.id_count)
-                self.id_count += 1
-                self.labels.add(label)
-                label_tok = Token(T.label, operand.position, operand.line, label)
-                self.add_inst(Instruction(label_tok, None))
-                self.add_inst(Instruction(token(T.word, 'DW'), None, operand))
-
-                for i, val in enumerate(value):
-                    if val.type == T.reg:
-                        value[i] = token(T.imm, 0)
-                        self.add_inst(Instruction(token(T.word, 'LSTR'), None, label_tok, token(T.imm, i+1), val))
-
-                self.advance()
-                operand = label_tok
+                operand = self.make_array(operand, value)
 
             else:
                 self.advance()
@@ -1133,6 +1130,39 @@ class Parser:
                 self.advance()
         self.i -= 1  # rollback 1 advance
         return
+
+    def make_array(self, operand, value) -> Token:
+        label = self.label_id + 'array' + str(self.id_count)
+        self.id_count += 1
+        self.labels.add(label)
+        label_tok = Token(T.label, operand.position, operand.line, label)
+        self.add_inst(Instruction(label_tok, None))
+        self.add_inst(Instruction(token(T.word, 'DW'), None, operand))
+
+        for i, val in enumerate(value):
+            if val.type == T.reg:
+                value[i] = token(T.imm, 0)
+                self.add_inst(Instruction(token(T.word, 'LSTR'), None, label_tok, token(T.imm, i + 1), val))
+
+            elif val.type == T.array:
+                value[i] = self.make_array(val, val.value)
+
+            elif val.type == T.string:
+                value[i] = self.make_string(val, val.value)
+
+        self.advance()
+        return label_tok
+
+    def make_string(self, operand, value) -> Token:
+        label = self.label_id + 'string' + str(self.id_count)
+        self.id_count += 1
+        self.labels.add(label)
+        label_tok = Token(T.label, operand.position, operand.line, label)
+        self.add_inst(Instruction(label_tok, None))
+        self.add_inst(Instruction(token(T.word, 'DW'), None, operand))
+
+        self.advance()
+        return label_tok
 
     def make_switch(self) -> None:
         inst = Instruction(Token(T.word, self.peak().position - 1, self.peak().line, 'SWITCH'), None)
