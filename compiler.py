@@ -35,6 +35,7 @@ class T(Enum):
     sym_and = "sym_and"
     sym_or = "sym_or"
     sym_lnbr = 'sym_lnbr'
+    group = 'group'
 
     def __repr__(self) -> str:
         return self.value
@@ -62,15 +63,15 @@ symbols = {
     ';': T.sym_lnbr,
 }
 op_precedence = {
-    "sym_lt": 0,
-    "sym_gt": 0,
-    "sym_geq": 0,
-    "sym_leq": 0,
-    "sym_dif": 1,
-    "sym_equ": 1,
-    "sym_and": 2,
-    "sym_or": 3,
-    "sym_lpa": 5
+    T.sym_lt: 0,
+    T.sym_gt: 0,
+    T.sym_geq: 0,
+    T.sym_leq: 0,
+    T.sym_dif: 1,
+    T.sym_equ: 1,
+    T.sym_and: 2,
+    T.sym_or: 3,
+    T.sym_lpa: 5
 }
 port_names = {'CPUBUS', 'TEXT', 'NUMB', 'SUPPORTED', 'SPECIAL', 'PROFILE', 'X', 'Y', 'COLOR', 'BUFFER', 'G-SPECIAL',
               'ASCII', 'CHAR5', 'CHAR6', 'ASCII7', 'UTF8', 'UTF16', 'UTF32', 'T-SPECIAL', 'INT', 'UINT', 'BIN', 'HEX',
@@ -253,7 +254,7 @@ class Lexer:
             self.token(T.array, values)
             self.advance()
 
-        elif self.p[self.i] in symbols or self.p[self.i] in {'=', '!'}:  # gotta check for first char of all
+        elif self.p[self.i] in symbols or self.p[self.i] in {'=', '!', '&', '|'}:  # gotta check for first char of all
             self.make_symbol()
             self.advance()
 
@@ -301,7 +302,7 @@ class Lexer:
 
             elif self.p[self.i] in charset:  # opcode or other words
                 string = prefix + self.make_word()
-                if string == 'SP' or string == 'PC':
+                if string.upper() in {'SP', 'PC'}:
                     self.token(T.reg, string)
                 elif prefix in 'mM#rR$':
                     try:
@@ -690,6 +691,11 @@ class Instruction:
 
                 string += ' ]'
 
+            elif op.type == T.string:
+                s = list(op.value[1:-1])
+                s.insert(0, len(op.value) - 2)
+                string += ' ' + str(s).replace(',', '')
+
             else:
                 string += ' ' + op.value
         return string
@@ -713,7 +719,7 @@ class Parser:
         self.inst_def: Dict[str, InstDef] = {}
         self.errors: List[Error] = []
 
-        self.temp: Dict[Token] = {}
+        self.temp: Dict[Token] = {token(T.reg, 'tmp1'): True, token(T.reg, 'tmp2'): True}
         self.id_count = 0
         self.macros: Dict[Token] = {}
         self.labels = set()
@@ -832,11 +838,15 @@ class Parser:
 
         opcode_str = opcode.value
         if recursive:
-            inst = Instruction(opcode, self.get_inst_def(opcode))
             tmp = self.get_tmp()
-            inst.operands.append(tmp)
-            self.make_operands(inst, recursive=recursive)
-            self.instructions.append(inst)
+            if opcode_str == 'LCAL':
+                self.make_lcal()
+                self.add_inst(Instruction(token(T.word, 'MOV'), None, tmp, token(T.reg, 'R1')))
+            else:
+                inst = Instruction(opcode, self.get_inst_def(opcode))
+                inst.operands.append(tmp)
+                self.make_operands(inst, recursive=recursive)
+                self.instructions.append(inst)
             return tmp
 
         if opcode_str == 'INST':
@@ -989,7 +999,7 @@ class Parser:
                 self.advance()
 
             elif type == T.string:
-                operand = self.make_string(operand, value)
+                operand = self.make_string(operand)
 
             elif type == T.array:
                 operand = self.make_array(operand, value)
@@ -1148,13 +1158,13 @@ class Parser:
                 value[i] = self.make_array(val, val.value)
 
             elif val.type == T.string:
-                value[i] = self.make_string(val, val.value)
+                value[i] = self.make_string(val)
 
         self.advance()
         return label_tok
 
-    def make_string(self, operand, value) -> Token:
-        label = self.label_id + 'string' + str(self.id_count)
+    def make_string(self, operand) -> Token:
+        label = f'{self.label_id}string{str(self.id_count)}'
         self.id_count += 1
         self.labels.add(label)
         label_tok = Token(T.label, operand.position, operand.line, label)
@@ -1365,9 +1375,7 @@ class Parser:
             while self.has_next() and self.peak().type != T.sym_rpa:
                 self.next_operand(inst)
 
-            if self.has_next():
-                self.skip_line()
-            else:
+            if not self.has_next():
                 self.error(E.sym_miss, self.tokens[self.i - 1], ')')
 
             outs = self.lib_headers[lib.value]['OUTS']
@@ -1522,25 +1530,111 @@ class Parser:
         return end_label, loop_label, self.id_count - 1
 
     def do_condition(self, inst: Instruction, label: Token, id):
-        operands = self.make_operands(inst)
-        self.skip_line()
-        if len(operands) == 1:
-            self.add_inst(Instruction(token(T.word, 'BRZ'), None, label, operands[0]))
-        elif len(operands) == 3:
-            cnd = operands[1].type
-            comparison = {
-                T.sym_lt: Instruction(token(T.word, 'SBGE'), None, label, operands[0], operands[2]),
-                T.sym_gt: Instruction(token(T.word, 'SBLE'), None, label, operands[0], operands[2]),
-                T.sym_geq: Instruction(token(T.word, 'SBRL'), None, label, operands[0], operands[2]),
-                T.sym_leq: Instruction(token(T.word, 'SBRG'), None, label, operands[0], operands[2]),
-                T.sym_dif: Instruction(token(T.word, 'SBRE'), None, label, operands[0], operands[2]),
-                T.sym_equ: Instruction(token(T.word, 'SBNE'), None, label, operands[0], operands[2]),
-            }
-            if cnd not in comparison:
-                return  # wrong condition or smt
+        operands = self.shunting_yard(inst)
+        temps: Dict[Token] = self.temp.copy()  # save the current state of the temps
+        tmpa = self.get_tmp()
+        self.set_tmp(tmpa)
+        tmpb = self.get_tmp()
+        self.ret_tmp(tmpa)
+        stack = []
+        next_count = 0
+
+        for op in operands:
+            if op.type in op_precedence:
+                val_b = stack.pop()
+                val_a = stack.pop()
+
+                if op.type == T.sym_and:
+                    if val_a is None:
+                        if val_b is None:   # b is on top of the stack
+                            self.add_inst(Instruction(token(T.word, 'POP'), None, tmpb))
+                            val_b = tmpb
+                        self.add_inst(Instruction(token(T.word, 'POP'), None, tmpa))
+                        val_a = tmpa
+
+                    self.add_inst(Instruction(token(T.word, 'PSH'), None, token(T.imm, 0)))
+                    next_label = token(T.label, f'{self.label_id}{"next"}_{id}_{next_count}')
+                    next_count += 1
+
+                    if val_a.type == T.group:
+                        mini_parser = Parser(val_a.value, self.label_id, self.file_name, recursive=True)
+                        mini_parser.temp = self.temp
+                        mini_parser.lib_headers = self.lib_headers
+                        val_a = mini_parser.next_operand(Instruction(token(T.word, '_'), None))
+                        self.instructions += mini_parser.instructions
+
+                    self.add_inst(Instruction(token(T.word, 'BZR'), None, next_label, val_a))
+
+                    if val_b is None:  # b is on top of the stack
+                        self.add_inst(Instruction(token(T.word, 'POP'), None, tmpb))
+                        val_b = tmpb
+
+                    elif val_b.type == T.group:
+                        mini_parser = Parser(val_b.value, self.label_id, self.file_name, recursive=True)
+                        mini_parser.temp = self.temp
+                        mini_parser.lib_headers = self.lib_headers
+                        val_b = mini_parser.next_operand(Instruction(token(T.word, '_'), None))
+
+                    self.add_inst(Instruction(token(T.word, 'STR'), None, token(T.reg, 'SP'), val_b))
+                    self.add_inst(Instruction(next_label, None))
+                    stack.append(None)  # None means the operand must be fetched from the stack
+
+                elif op.type == T.sym_or:
+                    if val_a is None:
+                        if val_b is None:  # b is on top of the stack
+                            self.add_inst(Instruction(token(T.word, 'POP'), None, tmpb))
+                            val_b = tmpb
+                        self.add_inst(Instruction(token(T.word, 'POP'), None, tmpa))
+                        val_a = tmpa
+
+                    self.add_inst(Instruction(token(T.word, 'PSH'), None, token(T.imm, 1)))
+                    next_label = token(T.label, f'{self.label_id}{"next"}_{id}_{next_count}')
+                    next_count += 1
+
+                    if val_a.type == T.group:
+                        mini_parser = Parser(val_a.value, self.label_id, self.file_name, recursive=True)
+                        mini_parser.temp = self.temp
+                        mini_parser.lib_headers = self.lib_headers
+                        val_a = mini_parser.next_operand(Instruction(token(T.word, '_'), None))
+                        self.instructions += mini_parser.instructions
+
+                    self.add_inst(Instruction(token(T.word, 'BNZ'), None, next_label, val_a))
+
+                    if val_b is None:  # b is on top of the stack
+                        self.add_inst(Instruction(token(T.word, 'POP'), None, tmpb))
+                        val_b = tmpb
+
+                    elif val_b.type == T.group:
+                        mini_parser = Parser(val_b.value, self.label_id, self.file_name, recursive=True)
+                        mini_parser.temp = self.temp
+                        mini_parser.lib_headers = self.lib_headers
+                        val_b = mini_parser.next_operand(Instruction(token(T.word, '_'), None))
+
+                    self.add_inst(Instruction(token(T.word, 'STR'), None, token(T.reg, 'SP'), val_b))
+                    self.add_inst(Instruction(next_label, None))
+                    stack.append(None)  # None means the operand must be fetched from the stack
+
             else:
-                self.add_inst(comparison[cnd])
-        # self.add_inst(Instruction(token(T.label, f'.reserved_body{id}')))
+                stack.append(op)
+            continue
+
+        if len(stack) == 1:
+            output = stack.pop()
+            if output is None:
+                self.add_inst(Instruction(token(T.word, 'POP'), None, tmpa))
+                self.add_inst(Instruction(token(T.word, 'BRZ'), None, label, tmpa))
+
+            elif output.type == T.group:
+                mini_parser = Parser(output.value, self.label_id, self.file_name, recursive=True)
+                mini_parser.temp = self.temp
+                mini_parser.lib_headers = self.lib_headers
+                output = mini_parser.next_operand(Instruction(token(T.word, '_'), None))
+                self.instructions += mini_parser.instructions
+                self.add_inst(Instruction(token(T.word, 'BRZ'), None, label, output))
+            else:
+                self.add_inst(Instruction(token(T.word, 'BRZ'), None, label, output))
+
+        self.temp = temps  # restore that same information
         return
 
     def shunting_yard(self, inst: Instruction) -> List[Token]:
@@ -1548,34 +1642,55 @@ class Parser:
         stack = []
         while self.has_next() and self.peak().type != T.newLine:
             type = self.peak().type
-            if type in op_precedence:
-                if op_precedence[type] > op_precedence[stack[-1].type]:
-                    stack.append(self.peak())
+            if type == T.sym_lpa:
+                tok = self.peak()
+                self.advance()
+                if self.peak().type == T.word:
+                    queue.append(self.group_inst(tok))
                 else:
-                    while op_precedence[type] > op_precedence[stack[-1].type]:
-                        queue.append(stack[-1])
-                    stack.append(self.peak())
+                    stack.append(tok)
+
+            elif type in op_precedence:
+                while len(stack) > 0 and op_precedence[type] > op_precedence[stack[-1].type]:
+                    queue.append(stack.pop())
+                stack.append(self.peak())
+                self.advance()
             elif type == T.sym_rpa:
                 while len(stack) > 0 and stack[-1].type != T.sym_lpa:
-                    queue.append(stack[-1])
+                    queue.append(stack.pop())
                 if len(stack) > 0:
                     stack.pop()
                 else:
                     self.error(E.word_miss, self.peak(), 'nothing')
+                self.advance()
             else:
                 queue.append(self.next_operand(inst))
-            self.advance()
 
         if self.has_next():
             while len(stack) > 0:
                 if stack[-1].type == T.sym_lpa:
                     self.errors.append(Error(E.sym_miss, self.peak(-1).position, self.peak(-1).line, self.file_name, ')'))
                 else:
-                    queue.append(stack[-1])
+                    queue.append(stack.pop())
         else:
-            self.error(E.word_miss, self.peak(), 'nothing')
+            self.error(E.word_miss, self.peak(-1), 'nothing')
         self.skip_line()
         return queue
+
+    def group_inst(self, tok) -> Token:
+        toks = [tok]
+        scope = 0
+        while self.has_next() and (self.peak().type != T.sym_rpa or scope != 0):
+            tok = self.peak()
+            toks.append(tok)
+            if tok.type == T.sym_lpa:
+                scope += 1
+            elif tok.type == T.sym_rpa:
+                scope -= 1
+            self.advance()
+        toks.append(self.peak())
+        self.advance()
+        return token(T.group, toks)
 
     def peak(self, j=0) -> Token:
         return self.tokens[self.i + j]
