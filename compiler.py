@@ -1324,13 +1324,18 @@ class Parser:
 
         self.labels.add(start_label.value)
         self.add_inst(Instruction(start_label, None))
-        self.add_inst(Instruction(token(T.word, 'SBGE'), None, end_label, reg, end_num))
 
         if self.has_next() and self.peak().type != T.newLine:  # checking if there is the option parameter
             value_to_add = self.next_operand(inst)
             end_statement: Instruction = Instruction(token(T.word, 'ADD'), None, reg, reg, value_to_add)
         else:
             end_statement: Instruction = Instruction(token(T.word, 'ADD'), None, reg, reg, token(T.imm, 1))
+
+        if end_statement.operands[2].value > 0:
+            self.add_inst(Instruction(token(T.word, 'SBGE'), None, end_label, reg, end_num))
+        else:
+            self.add_inst(Instruction(token(T.word, 'SBLE'), None, end_label, reg, end_num))
+
         self.skip_line(inst, True)
 
         self.process_scope(recursive, end_statement, start_label, end_label)
