@@ -643,9 +643,6 @@ class OpType:
                 return self.operand_type[type]
         return
 
-    def __repr__(self) -> str:
-        return self.value
-
 
 ot = OpType()
 
@@ -1225,7 +1222,7 @@ class Parser:
 
             elif self.peak().type == T.word and self.peak().value.upper() == 'EXIT':
                 self.skip_line(inst, True)
-                self.add_inst(Instruction(Token(T.word, pos, line, 'BRA'), None, end_label))
+                self.add_inst(Instruction(token(T.word, 'BRA'), None, end_label))
 
             else:
                 self.make_instruction()
@@ -1327,9 +1324,9 @@ class Parser:
 
         self.labels.add(start_label.value)
         self.add_inst(Instruction(start_label, None))
-        self.add_inst(Instruction(token(T.word, 'SBGE'), end_label, reg, end_num))
+        self.add_inst(Instruction(token(T.word, 'SBGE'), None, end_label, reg, end_num))
 
-        if self.has_next() and self.tokens[self.i] != T.newLine:  # checking if there is the option parameter
+        if self.has_next() and self.peak().type != T.newLine:  # checking if there is the option parameter
             value_to_add = self.next_operand(inst)
             end_statement: Instruction = Instruction(token(T.word, 'ADD'), None, reg, reg, value_to_add)
         else:
@@ -1539,7 +1536,7 @@ class Parser:
         stack = []
         next_count = 0
 
-        for op in operands:
+        '''for op in operands:
             if op.type in op_precedence:
                 val_b = stack.pop()
                 val_a = stack.pop()
@@ -1616,7 +1613,7 @@ class Parser:
 
             else:
                 stack.append(op)
-            continue
+            continue'''
 
         if len(stack) == 1:
             output = stack.pop()
