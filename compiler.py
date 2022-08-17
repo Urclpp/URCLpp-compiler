@@ -132,7 +132,7 @@ def main():
         print(usage)
         return
 
-    source = r''''''
+    source = r'''IF 1<2 && r1'''
 
     output_file_name = dest_name
     label_id = f'.reserved_{output_file_name}_'
@@ -1532,111 +1532,132 @@ class Parser:
         return end_label, loop_label, self.id_count - 1
 
     def do_condition(self, inst: Instruction, label: Token, id):
-        operands = self.shunting_yard(inst)
-        temps: Dict[Token] = self.temp.copy()  # save the current state of the temps
-        tmpa = self.get_tmp()
-        self.set_tmp(tmpa)
-        tmpb = self.get_tmp()
-        self.ret_tmp(tmpa)
-        stack = []
-        next_count = 0
+        def next_expression(operands, count):
+            try:
+                op = next(operands)
+            except StopIteration:
+                # should error
+                return []
 
-        '''for op in operands:
             if op.type in op_precedence:
-                val_b = stack.pop()
-                val_a = stack.pop()
+                val_b = next_expression(operands, count)
+                val_a = next_expression(operands, count)
 
                 if op.type == T.sym_and:
-                    if val_a is None:
-                        if val_b is None:   # b is on top of the stack
-                            self.add_inst(Instruction(token(T.word, 'POP'), None, tmpb))
-                            val_b = tmpb
-                        self.add_inst(Instruction(token(T.word, 'POP'), None, tmpa))
-                        val_a = tmpa
+                    output = [Instruction(token(T.word, 'PSH'), None, token(T.imm, 0))]
+                    next_label = token(T.label, f'{self.label_id}{"next"}_{id}_{next(count)}')
 
-                    self.add_inst(Instruction(token(T.word, 'PSH'), None, token(T.imm, 0)))
-                    next_label = token(T.label, f'{self.label_id}{"next"}_{id}_{next_count}')
-                    next_count += 1
+                    if isinstance(val_a, list):
+                        if val_a[-1].opcode.value == 'PSH':
+                            val_a.pop()
+                        else:
+                            val_a.append(Instruction(token(T.word, 'POP'), None, val_a))
+                        output += val_a
+                        val_a = self.get_tmp()
 
-                    if val_a.type == T.group:
+                    elif val_a.type == T.group:
                         mini_parser = Parser(val_a.value, self.label_id, self.file_name, recursive=True)
                         mini_parser.temp = self.temp
                         mini_parser.lib_headers = self.lib_headers
-                        val_a = mini_parser.next_operand(Instruction(token(T.word, '_'), None))
+                        val_a = mini_parser.next_operand(Instruction(token(T.word, ''), None))
                         self.instructions += mini_parser.instructions
 
-                    self.add_inst(Instruction(token(T.word, 'BZR'), None, next_label, val_a))
+                    output.append(Instruction(token(T.word, 'BZR'), None, next_label, val_a))
 
-                    if val_b is None:  # b is on top of the stack
-                        self.add_inst(Instruction(token(T.word, 'POP'), None, tmpb))
-                        val_b = tmpb
+                    if isinstance(val_b, list):
+                        if val_b[-1].opcode.value == 'PSH':
+                            val_b.pop()
+                        else:
+                            val.b.append(Instruction(token(T.word, 'POP'), None, val_b))
+
+                        output += val_b
+                        val_b = self.get_tmp()
 
                     elif val_b.type == T.group:
                         mini_parser = Parser(val_b.value, self.label_id, self.file_name, recursive=True)
                         mini_parser.temp = self.temp
                         mini_parser.lib_headers = self.lib_headers
-                        val_b = mini_parser.next_operand(Instruction(token(T.word, '_'), None))
+                        val_b = mini_parser.next_operand(Instruction(token(T.word, ''), None))
+                        self.instructions += mini_parser.instructions
 
-                    self.add_inst(Instruction(token(T.word, 'STR'), None, token(T.reg, 'SP'), val_b))
-                    self.add_inst(Instruction(next_label, None))
-                    stack.append(None)  # None means the operand must be fetched from the stack
+                    output.append(Instruction(token(T.word, 'STR'), None, token(T.reg, 'SP'), val_b))
+                    output.append(Instruction(next_label, None))
+
+                    return output
 
                 elif op.type == T.sym_or:
-                    if val_a is None:
-                        if val_b is None:  # b is on top of the stack
-                            self.add_inst(Instruction(token(T.word, 'POP'), None, tmpb))
-                            val_b = tmpb
-                        self.add_inst(Instruction(token(T.word, 'POP'), None, tmpa))
-                        val_a = tmpa
+                    output = [Instruction(token(T.word, 'PSH'), None, token(T.imm, 1))]
+                    next_label = token(T.label, f'{self.label_id}{"next"}_{id}_{next(count)}')
 
-                    self.add_inst(Instruction(token(T.word, 'PSH'), None, token(T.imm, 1)))
-                    next_label = token(T.label, f'{self.label_id}{"next"}_{id}_{next_count}')
-                    next_count += 1
+                    if isinstance(val_a, list):
+                        if val_a[-1].opcode.value == 'PSH':
+                            val_a.pop()
+                        else:
+                            val_a.append(Instruction(token(T.word, 'POP'), None, val_a))
+                        output += val_a
+                        val_a = self.get_tmp()
 
-                    if val_a.type == T.group:
+                    elif val_a.type == T.group:
                         mini_parser = Parser(val_a.value, self.label_id, self.file_name, recursive=True)
                         mini_parser.temp = self.temp
                         mini_parser.lib_headers = self.lib_headers
-                        val_a = mini_parser.next_operand(Instruction(token(T.word, '_'), None))
+                        val_a = mini_parser.next_operand(Instruction(token(T.word, ''), None))
                         self.instructions += mini_parser.instructions
 
-                    self.add_inst(Instruction(token(T.word, 'BNZ'), None, next_label, val_a))
+                    output.append(Instruction(token(T.word, 'BNZ'), None, next_label, val_a))
 
-                    if val_b is None:  # b is on top of the stack
-                        self.add_inst(Instruction(token(T.word, 'POP'), None, tmpb))
-                        val_b = tmpb
+                    if isinstance(val_b, list):
+                        if isinstance(val_b, list):
+                            if val_b[-1].opcode.value == 'PSH':
+                                val_b.pop()
+                            else:
+                                val.b.append(Instruction(token(T.word, 'POP'), None, val_b))
+
+                            output += val_b
+                            val_b = self.get_tmp()
 
                     elif val_b.type == T.group:
                         mini_parser = Parser(val_b.value, self.label_id, self.file_name, recursive=True)
                         mini_parser.temp = self.temp
                         mini_parser.lib_headers = self.lib_headers
-                        val_b = mini_parser.next_operand(Instruction(token(T.word, '_'), None))
+                        val_b = mini_parser.next_operand(Instruction(token(T.word, ''), None))
+                        self.instructions += mini_parser.instructions
 
-                    self.add_inst(Instruction(token(T.word, 'STR'), None, token(T.reg, 'SP'), val_b))
-                    self.add_inst(Instruction(next_label, None))
-                    stack.append(None)  # None means the operand must be fetched from the stack
+                    output.append(Instruction(token(T.word, 'STR'), None, token(T.reg, 'SP'), val_b))
+                    output.append(Instruction(next_label, None))
 
+                    return output
+
+                else:
+                    op_to_inst = {
+                        T.sym_equ: 'SETE',
+                        T.sym_dif: 'SETNE',
+                        T.sym_gt: 'SETGT',
+                        T.sym_lt: 'SETLT',
+                        T.sym_geq: 'SETGE',
+                        T.sym_leq: 'SETLE',
+                    }
+                    tmp = self.get_tmp()
+                    return [Instruction(token(T.word, op_to_inst[op.type]), None, tmp, val_a, val_b),
+                            Instruction(token(T.word, 'PSH'), None, tmp)]
             else:
-                stack.append(op)
-            continue'''
+                return op
 
-        if len(stack) == 1:
-            output = stack.pop()
-            if output is None:
-                self.add_inst(Instruction(token(T.word, 'POP'), None, tmpa))
-                self.add_inst(Instruction(token(T.word, 'BRZ'), None, label, tmpa))
+        operands = self.shunting_yard(inst)
+        expression = next_expression(reversed(operands), iter(int, 1))     # infinite iterator
 
-            elif output.type == T.group:
-                mini_parser = Parser(output.value, self.label_id, self.file_name, recursive=True)
-                mini_parser.temp = self.temp
-                mini_parser.lib_headers = self.lib_headers
-                output = mini_parser.next_operand(Instruction(token(T.word, '_'), None))
-                self.instructions += mini_parser.instructions
-                self.add_inst(Instruction(token(T.word, 'BRZ'), None, label, output))
+        if isinstance(expression, list):
+            cnd = self.get_tmp()
+            if expression[-1].opcode.value == 'PSH':
+                expression.pop()
             else:
-                self.add_inst(Instruction(token(T.word, 'BRZ'), None, label, output))
+                expression.append(Instruction(token(T.word, 'POP'), None, cnd))
+        else:
+            cnd = expression
 
-        self.temp = temps  # restore that same information
+        expression.append(Instruction(token(T.word, 'BRZ'), None, label, cnd))
+
+        self.instructions += expression
         return
 
     def shunting_yard(self, inst: Instruction) -> List[Token]:
