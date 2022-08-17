@@ -61,6 +61,20 @@ symbols = {
     '&&': T.sym_and,
     '||': T.sym_or,
     ';': T.sym_lnbr,
+
+    T.sym_lpa: '(',
+    T.sym_rpa: ')',
+    T.sym_lbr: '[',
+    T.sym_rbr: ']',
+    T.sym_col: ':',
+    T.sym_lt: '<',
+    T.sym_gt: '>',
+    T.sym_geq: '>=',
+    T.sym_leq: '<=',
+    T.sym_dif: '!=',
+    T.sym_equ: '==',
+    T.sym_and: '&&',
+    T.sym_or: '||',
 }
 op_precedence = {
     T.sym_lt: 0,
@@ -85,7 +99,7 @@ file_extension = '.urcl'
 file_extensionpp = '.urclpp'
 compiler_root = os.path.dirname(__file__)
 lib_root = os.path.join(compiler_root, 'urclpp-libraries')
-default_imports = {"inst.core", "inst.io", "inst.basic", "inst.complex"}
+default_imports = {"inst.core", "inst.io", "inst.basic", "inst.complex", "inst.headers"}
 
 
 # ERRORS
@@ -132,7 +146,7 @@ def main():
         print(usage)
         return
 
-    source = r'''IF 1<2 && r1'''
+    source = r'''IMPORT stdlib.data'''
 
     output_file_name = dest_name
     label_id = f'.reserved_{output_file_name}_'
@@ -617,11 +631,12 @@ class Lexer:
 @dataclass
 class OpType:
     def __init__(self):
-        self.op_type = {'REG', 'IMM', 'WB', 'MEM', 'LOC', 'ANY', 'IO'}
+        self.op_type = {'REG', 'IMM', 'WB', 'MEM', 'LOC', 'ANY', 'IO', 'WTV'}
         self.operand1_type = {  # used for the first operand
             'LOC': {T.reg, T.label, T.imm, T.relative},
             'MEM': {T.reg, T.label, T.imm, T.mem},
             'WB': {T.reg},
+            'IMM': {T.imm},
             'IO': {T.port},
             'ANY': {T.reg, T.imm, T.mem, T.label, T.char, T.relative}
         }
@@ -635,6 +650,8 @@ class OpType:
         }
 
     def allowed_types(self, type, op1: bool = False):
+        if type == 'WTV':   # the user spoke the sacred word. ignore everything
+            return False
         if op1:
             if type in self.operand1_type:
                 return self.operand1_type[type]
@@ -692,6 +709,9 @@ class Instruction:
                 s = list(op.value[1:-1])
                 s.insert(0, len(op.value) - 2)
                 string += ' ' + str(s).replace(',', '')
+
+            elif op.type in op_precedence:
+                string += ' ' + symbols[op.type]    # using the trick of getting the symbols table's inverse
 
             else:
                 string += ' ' + op.value
@@ -932,7 +952,8 @@ class Parser:
             return
 
         types = ot.allowed_types(inst.definition.operands[0], op1=True)
-        if types is None or inst.operands[0].type not in types:
+
+        if types and (types is None or inst.operands[0].type not in types):     # checking if its false because of WTV
             self.error(E.wrong_op_type, inst.operands[0],
                        inst.operands[0].type, inst.definition.operands[0])
 
@@ -942,7 +963,7 @@ class Parser:
         # prolly this will change in the future to accommodate for optional operands
         for op, op_def in zip(inst.operands[1:], inst.definition.operands[1:]):
             types = ot.allowed_types(op_def)
-            if types is not None and op.type in types:
+            if not types or (types is not None and op.type in types):
                 continue
             self.error(E.wrong_op_type, op, op.type, op_def)
         return
@@ -1652,12 +1673,19 @@ class Parser:
                 expression.pop()
             else:
                 expression.append(Instruction(token(T.word, 'POP'), None, cnd))
+            self.instructions += expression
         else:
-            cnd = expression
+            if expression.type == T.group:
+                mini_parser = Parser(expression.value, self.label_id, self.file_name, recursive=True)
+                mini_parser.temp = self.temp
+                mini_parser.lib_headers = self.lib_headers
+                cnd = mini_parser.next_operand(Instruction(token(T.word, ''), None))
+                self.instructions += mini_parser.instructions
 
-        expression.append(Instruction(token(T.word, 'BRZ'), None, label, cnd))
+            else:
+                cnd = expression
 
-        self.instructions += expression
+        self.add_inst(Instruction(token(T.word, 'BRZ'), None, label, cnd))
         return
 
     def shunting_yard(self, inst: Instruction) -> List[Token]:
