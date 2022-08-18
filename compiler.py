@@ -736,7 +736,7 @@ class Parser:
         self.inst_def: Dict[str, InstDef] = {}
         self.errors: List[Error] = []
 
-        self.temp: Dict[Token] = {token(T.reg, 'tmp1'): True, token(T.reg, 'tmp2'): True}
+        self.temp: Dict[Token] = {}
         self.id_count = 0
         self.macros: Dict[Token] = {}
         self.labels = set()
@@ -803,21 +803,23 @@ class Parser:
         return headers
 
     def parse(self):
+        index = self.i
         while self.has_next():
             while self.has_next() and self.peak().type == T.newLine:
                 self.advance()
             if not self.has_next():
                 break
             tok = self.peak()
-            if tok.type == T.label and tok.value in self.labels:
-                self.error(E.duplicate_label, tok, tok.value)
-                self.tokens.remove(tok)
-            else:
-                self.labels.add(tok.value)
+            if tok.type == T.label:
+                if tok.value in self.labels:
+                    self.error(E.duplicate_label, tok, tok.value)
+                    self.tokens.remove(tok)
+                else:
+                    self.labels.add(tok.value)
 
             self.skip_line()
 
-        self.i = 0
+        self.i = index
         while self.has_next():
             while self.has_next() and self.peak().type == T.newLine:
                 self.advance()
@@ -846,6 +848,8 @@ class Parser:
     # loop[2] = end_label
     def make_instruction(self, recursive: bool = False, loop=None):
         opcode = self.get_opcode()
+        if opcode is None:
+            return
         opcode.value = opcode.value.upper()
         self.advance()
         if not self.has_next():     # useless but might save from some exceptions
@@ -1653,8 +1657,8 @@ class Parser:
                     op_to_inst = {
                         T.sym_equ: 'SETE',
                         T.sym_dif: 'SETNE',
-                        T.sym_gt: 'SETGT',
-                        T.sym_lt: 'SETLT',
+                        T.sym_gt: 'SETG',
+                        T.sym_lt: 'SETL',
                         T.sym_geq: 'SETGE',
                         T.sym_leq: 'SETLE',
                     }
