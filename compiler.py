@@ -695,6 +695,8 @@ class Instruction:
     def __str__(self):
         string = self.opcode.value
         for op in self.operands:
+            if op is None:
+                continue
             if op.type == T.imm:
                 string += ' ' + str(op.value)
 
@@ -779,9 +781,9 @@ class Parser:
     def get_lib_headers(self):
         headers = {
             'BITS': None,
-            'OUTS': None,
-            'OPS': None,
-            'REG': None
+            'OUTS': 0,
+            'OPS': 0,
+            'REG': 0
         }
         while self.has_next():
             header = self.next_word()
@@ -1453,9 +1455,12 @@ class Parser:
             lib_code = []
             for subdir, dirs, files in os.walk(path):
                 for file in files:
-                    if not file.endswith(file_extension):
+                    if file.endswith(file_extension):
+                        lib_file_name = subdir[len(lib_root) + 1:] + '/' + file[:-len(file_extension)]
+                    elif file.endswith(file_extensionpp):
+                        lib_file_name = subdir[len(lib_root) + 1:] + '/' + file[:-len(file_extensionpp)]
+                    else:
                         continue
-                    lib_file_name = subdir[len(lib_root) + 1:] + '/' + file[:-len(file_extension)]
                     if lib_file_name in self.imported_libs:
                         continue
                     self.imported_libs.add(lib_file_name)
@@ -1523,20 +1528,18 @@ class Parser:
 
     def make_dw(self):
         inst = Instruction(Token(T.word, self.peak().position - 1, self.peak().line, 'DW'), None)
-        if self.peak().type == T.string or self.peak().type == T.char:
+        if self.peak().type == T.string:
             string = list(self.peak().value)[1:-1]
             length = len(string)
             string.insert(0, length)
             inst.operands.append(token(T.string, str(string).replace(',', '')))
 
-        elif self.peak().type == T.sym_lbr:
-            self.advance()
-            self.make_operands(inst)
+        elif self.peak().type == T.array:
             args = []
-            for element in inst.operands:
-                if element.type == T.sym_rbr:
-                    break
-                if element.type in {T.imm, T.label, T.char, T.mem}:
+            for element in self.peak().value:
+                if element.type == T.char:
+                    args.append(element.value[1:-1])
+                elif element.type in {T.imm, T.label, T.mem}:
                     args.append(element.value)
                 else:
                     self.error(E.wrong_op_type, element, element.type, 'Imm literal')
