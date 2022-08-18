@@ -1440,6 +1440,7 @@ class Parser:
         lexer.make_tokens()
         parser = Parser(lexer.output, label_id, lib_name.replace('.', '/'), recursive=True)
         parser.inst_def = self.inst_def
+        parser.temp = self.temp
         headers = parser.get_lib_headers()
         if self.compare_headers(headers):
             parser.parse()
