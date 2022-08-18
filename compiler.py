@@ -146,7 +146,7 @@ def main():
         print(usage)
         return
 
-    source = r'''IMPORT stdlib.data'''
+    source = r''''''
 
     output_file_name = dest_name
     label_id = f'.reserved_{output_file_name}_'
@@ -308,6 +308,8 @@ class Lexer:
                 char = self.make_str("'")
                 if len(char) == 3:  # char = "'<char>'"
                     self.token(T.char, char)
+                elif char == "'\\n'":
+                    self.token(T.char, '\\n')
                 else:
                     self.error(E.invalid_char, char)
 
@@ -536,8 +538,12 @@ class Lexer:
     def make_str(self, char: str) -> str:
         word = char
         while self.has_next() and self.p[self.i] != char and self.p[self.i] != '\n':
-            word += self.p[self.i]
-            self.advance()
+            if self.p[self.i] == '\\' and self.has_next(1) and self.p[self.i+1] == 'n':
+                word += '\n'
+                self.advance(2)
+            else:
+                word += self.p[self.i]
+                self.advance()
 
         if self.has_next() and self.p[self.i] == '\n':
             self.new_line()
@@ -1529,10 +1535,7 @@ class Parser:
     def make_dw(self):
         inst = Instruction(Token(T.word, self.peak().position - 1, self.peak().line, 'DW'), None)
         if self.peak().type == T.string:
-            string = list(self.peak().value)[1:-1]
-            length = len(string)
-            string.insert(0, length)
-            inst.operands.append(token(T.string, str(string).replace(',', '')))
+            inst.operands.append(token(T.string, self.peak().value))
 
         elif self.peak().type == T.array:
             args = []
