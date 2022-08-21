@@ -752,6 +752,8 @@ class Parser:
 
         self.lib_headers: Dict[str] = {}
         self.imported_libs = set()
+        if file_name is not None:
+            self.imported_libs.add(file_name)
         self.recursive = recursive
         if recursive:
             self.lib_code = []
@@ -1441,19 +1443,19 @@ class Parser:
         parser = Parser(lexer.output, label_id, lib_name.replace('.', '/'), recursive=True)
         parser.inst_def = self.inst_def
         parser.temp = self.temp
+        parser.imported_libs = self.imported_libs
+        if self.file_name is not None:
+            parser.imported_libs.add(self.file_name)
+        parser.lib_headers = self.lib_headers
         headers = parser.get_lib_headers()
         if self.compare_headers(headers):
             parser.parse()
             self.lib_headers[lib_name] = headers
-            dependencies = []
-            for lib in parser.imported_libs:
-                if lib not in self.imported_libs:  # check and import dependencies
-                    dependencies += self.read_lib(lib)
 
             for error in parser.errors:
                 self.errors.append(error)
             label = Instruction(token(T.label, label_id[:-1]), None)
-            return [label] + parser.instructions + dependencies, parser.inst_def
+            return [label] + parser.instructions, parser.inst_def
         return
 
     def read_lib(self, name: str):
@@ -1470,11 +1472,11 @@ class Parser:
                         continue
                     if lib_file_name in self.imported_libs:
                         continue
-                    self.imported_libs.add(lib_file_name)
                     with open(os.path.join(subdir, file), 'r') as f:
                         code, inst_defs = self.process_lib(f.read(), lib_file_name.replace('/', '.'))
                         lib_code += code
-                        self.inst_def.update(inst_defs)
+                    self.inst_def.update(inst_defs)
+                    self.imported_libs.add(lib_file_name)
             return lib_code
 
         elif os.path.isfile(path + file_extension):
@@ -1482,22 +1484,22 @@ class Parser:
             lib_file_name = path[len(lib_root) + 1:-len(file_extension)]
             if lib_file_name in self.imported_libs:
                 return
-            self.imported_libs.add(lib_file_name)
             with open(path, "r") as f:
                 code, inst_defs = self.process_lib(f.read(), lib_file_name.replace('/', '.'))
-                self.inst_def.update(inst_defs)
-                return code
+            self.inst_def.update(inst_defs)
+            self.imported_libs.add(lib_file_name)
+            return code
 
         elif os.path.isfile(path + file_extensionpp):
             path += file_extensionpp
             lib_file_name = path[len(lib_root) + 1:-len(file_extensionpp)]
             if lib_file_name in self.imported_libs:
                 return
-            self.imported_libs.add(lib_file_name)
             with open(path, "r") as f:
                 code, inst_defs = self.process_lib(f.read(), lib_file_name.replace('/', '.'))
-                self.inst_def.update(inst_defs)
-                return code
+            self.inst_def.update(inst_defs)
+            self.imported_libs.add(lib_file_name)
+            return code
 
         else:  # this can be used later:   self.error(E.unk_function, self.peak(-1), name.split('.')[1])
             self.error(E.unk_library, self.peak(-1), name)
