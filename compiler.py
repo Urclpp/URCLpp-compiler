@@ -137,6 +137,7 @@ class E(Enum):
 
 usage = """usage: urclpp <source_file> <destination_file>"""
 
+imm_prefix = "imm:"
 
 def main():
     source_name = argv[1] if len(argv) >= 2 else None
@@ -151,13 +152,18 @@ def main():
     output_file_name = dest_name
     label_id = f'.reserved_{output_file_name}_'
 
+        
+
     if source_name is not None:
-        if os.path.isfile(source_name):
-            with open(source_name, mode='r') as sf:
-                source = sf.read().replace("\r", "")
+        if source_name.startswith(imm_prefix):
+            source = source_name[len(imm_prefix):]
         else:
-            print(f'"{source_name}" is not a file', file=stderr)
-            exit(1)
+            if os.path.isfile(source_name):
+                with open(source_name, mode='r') as sf:
+                    source = sf.read().replace("\r", "")
+            else:
+                print(f'"{source_name}" is not a file', file=stderr)
+                exit(1)
 
     dest = stdout
 
